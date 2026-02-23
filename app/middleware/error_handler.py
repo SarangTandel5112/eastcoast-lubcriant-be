@@ -19,7 +19,7 @@ from app.core.exceptions import (
     EmailError,
     ConfigurationError
 )
-from app.schemas.errors import (
+from app.common.schemas.errors import (
     ErrorResponse,
     ValidationErrorResponse,
     DatabaseErrorResponse,

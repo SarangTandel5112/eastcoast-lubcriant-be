@@ -1,8 +1,8 @@
 from fastapi import APIRouter, status, Depends
 
-from app.schemas import RegisterSchema, LoginSchema, RefreshTokenSchema, TokenSchema, UserResponseSchema
+from app.modules.auth.auth_schema import RegisterSchema, LoginSchema, RefreshTokenSchema, TokenSchema, UserResponseSchema
 from app.core import get_current_user
-from app.controllers import auth_controller
+from app.modules.auth import auth_controller
 
 router = APIRouter()
 

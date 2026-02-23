@@ -1,58 +1,36 @@
-from fastapi import status
 from loguru import logger
 
-from app.schemas import CreateOrderSchema, OrderResponseSchema, OrderStatusEnum
+from app.modules.order.order_schema import CreateOrderSchema, OrderResponseSchema, OrderStatusEnum
 from app.core.exceptions import (
     NotFoundError,
-    ValidationError,
-    OrderValidationError,
     AuthorizationError,
-    PaymentError,
-    EmailError,
-    DatabaseError
+    DatabaseError,
 )
-from app.models import (
+from app.modules.order.order_model import (
     create_order as model_create_order,
-    find_order_by_id, get_orders_by_user,
+    find_order_by_id,
+    get_orders_by_user,
     update_order_status as model_update_order_status,
 )
-from app.tasks import send_order_confirmation_email, process_payment
+from app.modules.order.order_service import (
+    validate_order_items,
+    validate_shipping_address,
+    validate_payment_method,
+    validate_order_total,
+    calculate_order_total,
+    validate_status_transition,
+)
+from app.modules.order.order_tasks import send_order_confirmation_email, process_payment
 
 
 async def create_order(body: CreateOrderSchema, current_user: dict) -> OrderResponseSchema:
-    # Validate order items
-    if not body.items:
-        raise OrderValidationError("Order must contain at least one item")
-    
-    # Validate each item
-    for i, item in enumerate(body.items):
-        if item.quantity <= 0:
-            raise OrderValidationError(
-                f"Item quantity must be greater than 0",
-                item_index=i
-            )
-        if item.price <= 0:
-            raise OrderValidationError(
-                f"Item price must be greater than 0",
-                item_index=i
-            )
-    
-    # Validate shipping address
-    if not body.shipping_address or not body.shipping_address.postal_code:
-        raise OrderValidationError("Valid shipping address is required")
-    
-    # Validate payment method
-    valid_payment_methods = ["stripe", "paypal", "cod"]
-    if body.payment_method not in valid_payment_methods:
-        raise OrderValidationError(
-            f"Invalid payment method. Must be one of: {', '.join(valid_payment_methods)}"
-        )
-    
-    total_amount = sum(item.price * item.quantity for item in body.items)
-    
-    # Minimum order amount validation
-    if total_amount < 1:
-        raise OrderValidationError("Order total must be at least $1.00")
+    # Validate order data
+    validate_order_items(body.items)
+    validate_shipping_address(body.shipping_address)
+    validate_payment_method(body.payment_method)
+
+    total_amount = calculate_order_total(body.items)
+    validate_order_total(total_amount)
 
     try:
         order = model_create_order(
@@ -102,33 +80,19 @@ async def get_order(order_id: str, current_user: dict) -> OrderResponseSchema:
 async def update_order_status(
     order_id: str, new_status: OrderStatusEnum
 ) -> OrderResponseSchema:
-    # Validate status transitions
-    valid_transitions = {
-        "pending": ["confirmed", "cancelled"],
-        "confirmed": ["processing", "cancelled"],
-        "processing": ["shipped", "cancelled"],
-        "shipped": ["delivered", "returned"],
-        "delivered": ["returned"],
-        "cancelled": [],
-        "returned": []
-    }
-    
     try:
         order = find_order_by_id(order_id)
         if not order:
             raise NotFoundError("order", order_id)
-        
+
         current_status = order.get("status")
-        if new_status.value not in valid_transitions.get(current_status, []):
-            raise OrderValidationError(
-                f"Cannot transition from {current_status} to {new_status.value}"
-            )
-        
+        validate_status_transition(current_status, new_status.value)
+
         updated_order = model_update_order_status(order_id, new_status)
         if not updated_order:
             raise DatabaseError("update_order_status", "Failed to update order status")
-        
-    except (NotFoundError, OrderValidationError, DatabaseError):
+
+    except (NotFoundError, DatabaseError):
         raise
     except Exception as e:
         raise DatabaseError("update_order_status", str(e))

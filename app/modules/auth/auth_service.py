@@ -1,7 +1,6 @@
-from fastapi import status
 from loguru import logger
 
-from app.schemas import RegisterSchema, LoginSchema, RefreshTokenSchema, TokenSchema, UserResponseSchema
+from app.modules.auth.auth_schema import RegisterSchema, LoginSchema, RefreshTokenSchema, TokenSchema, UserResponseSchema
 from app.core import (
     hash_password, verify_password,
     create_access_token, create_refresh_token,
@@ -11,10 +10,8 @@ from app.core.exceptions import (
     ConflictError,
     NotFoundError,
     AuthenticationError,
-    ValidationError,
-    UserValidationError
 )
-from app.models import create_user, find_user_by_email, find_user_by_id
+from app.modules.auth.auth_model import create_user, find_user_by_email, find_user_by_id
 
 
 async def register_user(body: RegisterSchema) -> UserResponseSchema:

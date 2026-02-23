@@ -26,15 +26,16 @@ graph TD
 
 ### What each layer does
 
-| Layer | Folder | Responsibility | Express Equivalent |
+| Layer | Location | Responsibility | Express Equivalent |
 |---|---|---|---|
-| **Route** | `api/v1/routes/` | Accept HTTP request, call controller, return response | `routes/` |
-| **Controller** | `controllers/` | Business logic, validation, orchestration | `controllers/` |
-| **Model** | `models/` | Data access — CRUD operations on the database | `models/` (Mongoose) |
-| **Schema** | `schemas/` | Define shape of request/response data + validate | Joi / Zod schemas |
+| **Route** | `modules/*/​*_route.py` | Accept HTTP request, call controller, return response | `routes/` |
+| **Controller** | `modules/*/​*_controller.py` | Thin orchestration — calls service + model | `controllers/` |
+| **Service** | `modules/*/​*_service.py` | Pure business logic, validation, calculations | Joi validators + helpers |
+| **Model** | `modules/*/​*_model.py` | Data access — CRUD operations on the database | `models/` (Mongoose) |
+| **Schema** | `modules/*/​*_schema.py` | Define shape of request/response data + validate | Joi / Zod schemas |
 | **Core** | `core/` | App config, auth, logging — shared utilities | `middleware/` + `config/` |
-| **Tasks** | `tasks/` | Background jobs (email, payments) | BullMQ workers |
-| **Services** | `services/` | External API calls (HTTP clients) | Axios instances |
+| **Common** | `common/` | Shared schemas (errors) + services (HTTP client) | Shared utils |
+| **Tasks** | `modules/order/order_tasks.py` | Background jobs (email, payments) | BullMQ workers |
 
 ---
 
@@ -80,15 +81,19 @@ All route registration lives in `api/v1/router.py`:
 
 ```python
 # api/v1/router.py
+from app.modules.auth.auth_route import router as auth_router
+from app.modules.product.product_route import router as product_router
+from app.modules.order.order_route import router as order_router
+
 router = APIRouter(prefix="/api/v1")
 
-router.include_router(auth.router,     prefix="/auth",     tags=["Auth"])
-router.include_router(products.router, prefix="/products", tags=["Products"])
-router.include_router(orders.router,   prefix="/orders",   tags=["Orders"])
-# Add new routers here — main.py never changes
+router.include_router(auth_router,    prefix="/auth",     tags=["Auth"])
+router.include_router(product_router, prefix="/products", tags=["Products"])
+router.include_router(order_router,   prefix="/orders",   tags=["Orders"])
+# Add new module routers here — main.py never changes
 ```
 
-> **Why?** As the project grows, you keep adding routes to `router.py` — `main.py` stays the same size forever. It's like having a separate `routes/index.js` in Express instead of piling everything into `app.js`.
+> **Why?** As the project grows, you keep adding module routers to `router.py` — `main.py` stays the same size forever. Each module is self-contained with its own route, controller, service, schema, and model files.
 
 ---
 
@@ -202,7 +207,7 @@ sequenceDiagram
 ### How admin-only routes work
 
 ```python
-# In routes/products.py
+# In modules/product/product_route.py
 @router.post("/")
 async def create_product(
     body: CreateProductSchema,
@@ -448,20 +453,18 @@ sequenceDiagram
 
 ## 🧩 Barrel Exports — The Import System
 
-Instead of reaching into deep file paths, every package re-exports its contents from `__init__.py`:
+Instead of reaching into deep file paths, each module re-exports its contents from `__init__.py`:
 
 ```
-Without barrel exports (messy):          With barrel exports (clean):
-─────────────────────────────           ──────────────────────────────
-from app.schemas.auth import ...        from app.schemas import ...
-from app.schemas.products import ...    from app.schemas import ...
-from app.core.security import ...       from app.core import ...
-from app.core.config import ...         from app.core import ...
-from app.models.user import ...         from app.models import ...
-from app.models.product import ...      from app.models import ...
+Without barrel exports (messy):              With barrel exports (clean):
+───────────────────────────────────          ───────────────────────────────────
+from app.modules.auth.auth_schema import ...    from app.modules.auth import ...
+from app.modules.product.product_schema import ...  from app.modules.product import ...
+from app.core.security import ...                from app.core import ...
+from app.core.config import ...                  from app.core import ...
 ```
 
-**One rule:** Files **inside** a package (like `core/security.py`) still import from sibling files directly (e.g., `from app.core.config import settings`) to avoid circular imports. Only **consumer files outside the package** use barrel imports.
+**One rule:** Files **inside** a module (like `auth_service.py`) still import from sibling files directly (e.g., `from app.modules.auth.auth_model import create_user`) to avoid circular imports. Only **consumers outside the module** use barrel imports.
 
 ---
 
@@ -469,27 +472,33 @@ from app.models.product import ...      from app.models import ...
 
 | File | Lines | What it does |
 |---|---|---|
-| `main.py` | 54 | App creation, middleware, mounts v1_router, startup/shutdown |
-| `api/v1/router.py` | 11 | Central router registry — all route registrations in one place |
+| `main.py` | 86 | App creation, middleware, mounts v1_router, startup/shutdown |
+| `api/v1/router.py` | 15 | Central router registry — imports from all modules |
 | `core/config.py` | 37 | Reads `.env`, defines all config as typed Python attributes |
 | `core/security.py` | 69 | Password hashing, JWT create/decode, auth dependencies |
 | `core/logging.py` | 51 | Loguru setup: console + 3 log files |
-| `schemas/auth.py` | 30 | Register, Login, Token, User response shapes |
-| `schemas/products.py` | 50 | Product create/update/response + category enum |
-| `schemas/orders.py` | 48 | Order items, shipping address, status enum |
-| `models/user.py` | 36 | In-memory user store + create/find helpers |
-| `models/product.py` | 57 | In-memory product store + full CRUD + filtering |
-| `models/order.py` | 49 | In-memory order store + create/find/update |
-| `controllers/auth_controller.py` | 55 | Register, login, refresh, profile logic |
-| `controllers/product_controller.py` | 61 | Product CRUD logic |
-| `controllers/order_controller.py` | 61 | Order creation + background task dispatch |
-| `routes/auth.py` | 28 | 4 thin auth endpoints |
-| `routes/products.py` | 51 | 5 thin product endpoints (2 cached) |
-| `routes/orders.py` | 35 | 4 thin order endpoints |
-| `tasks/celery_app.py` | 24 | Celery config (Redis as broker) |
-| `tasks/email.py` | 40 | Email tasks with retry logic |
-| `tasks/payment.py` | 45 | Payment tasks with retry logic |
-| `services/http_client.py` | 52 | Reusable async HTTP client for external APIs |
+| `core/exceptions.py` | 171 | Custom exception hierarchy for all error types |
+| `common/schemas/errors.py` | 62 | Shared error response Pydantic models |
+| `common/services/http_client.py` | 52 | Reusable async HTTP client for external APIs |
+| `middleware/error_handler.py` | 188 | Global exception handler + error response formatting |
+| `middleware/request_context.py` | 52 | Request ID middleware for tracing |
+| `modules/auth/auth_schema.py` | 30 | Register, Login, Token, User response shapes |
+| `modules/auth/auth_model.py` | 36 | In-memory user store + create/find helpers |
+| `modules/auth/auth_service.py` | 65 | Register, login, refresh, profile business logic |
+| `modules/auth/auth_controller.py` | 18 | Thin orchestration — delegates to service |
+| `modules/auth/auth_route.py` | 28 | 4 thin auth endpoints |
+| `modules/product/product_schema.py` | 50 | Product create/update/response + category enum |
+| `modules/product/product_model.py` | 55 | In-memory product store + full CRUD + filtering |
+| `modules/product/product_service.py` | 51 | Product validation + pagination logic |
+| `modules/product/product_controller.py` | 58 | Product CRUD orchestration |
+| `modules/product/product_route.py` | 70 | 5 thin product endpoints (2 cached) |
+| `modules/order/order_schema.py` | 48 | Order items, shipping address, status enum |
+| `modules/order/order_model.py` | 46 | In-memory order store + create/find/update |
+| `modules/order/order_service.py` | 71 | Order validation + status transition logic |
+| `modules/order/order_controller.py` | 95 | Order creation + background task dispatch |
+| `modules/order/order_route.py` | 35 | 4 thin order endpoints |
+| `modules/order/order_tasks.py` | 82 | Celery tasks: email + payment (4 tasks) |
+| `tasks/celery_app.py` | 23 | Celery config (Redis as broker) |
 
 ---
 

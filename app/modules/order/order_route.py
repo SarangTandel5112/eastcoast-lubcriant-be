@@ -1,8 +1,8 @@
 from fastapi import APIRouter, status, Depends
 
-from app.schemas import CreateOrderSchema, OrderResponseSchema, OrderStatusEnum
+from app.modules.order.order_schema import CreateOrderSchema, OrderResponseSchema, OrderStatusEnum
 from app.core import get_current_user, require_admin
-from app.controllers import order_controller
+from app.modules.order import order_controller
 
 router = APIRouter()
 

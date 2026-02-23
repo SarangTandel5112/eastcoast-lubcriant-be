@@ -8,40 +8,48 @@ A production-ready e-commerce REST API built with **Python 3.11+** and **FastAPI
 
 ```
 app/
-├── main.py                  # Entry point — FastAPI app instance
-├── api/v1/routes/           # Route handlers (thin HTTP layer)
-│   ├── auth.py              # /api/v1/auth/*
-│   ├── products.py          # /api/v1/products/*
-│   └── orders.py            # /api/v1/orders/*
-├── controllers/             # Business logic layer
-│   ├── auth_controller.py
-│   ├── product_controller.py
-│   └── order_controller.py
-├── models/                  # Data access layer (database operations)
-│   ├── user.py
-│   ├── product.py
-│   └── order.py
-├── schemas/                 # Pydantic request/response validation
-│   ├── auth.py
-│   ├── products.py
-│   └── orders.py
-├── core/                    # App config, security, logging
-│   ├── config.py            # Reads .env via pydantic-settings
-│   ├── security.py          # JWT + bcrypt + auth dependencies
-│   └── logging.py           # Loguru setup (console + file + JSON)
-├── services/                # External API clients
-│   └── http_client.py       # Reusable async HTTP client (httpx)
-└── tasks/                   # Celery background tasks
-    ├── celery_app.py         # Celery configuration
-    ├── email.py              # Email sending tasks
-    └── payment.py            # Stripe payment tasks
+├── main.py                          # Entry point — FastAPI app instance
+├── api/v1/router.py                 # Central route registry
+├── modules/                         # Domain modules (self-contained features)
+│   ├── auth/
+│   │   ├── auth_route.py            # /api/v1/auth/* endpoints
+│   │   ├── auth_controller.py       # Thin orchestration layer
+│   │   ├── auth_service.py          # Business logic
+│   │   ├── auth_schema.py           # Pydantic request/response models
+│   │   └── auth_model.py            # Data access (user CRUD)
+│   ├── product/
+│   │   ├── product_route.py         # /api/v1/products/* endpoints
+│   │   ├── product_controller.py    # Thin orchestration layer
+│   │   ├── product_service.py       # Validation + pagination logic
+│   │   ├── product_schema.py        # Pydantic request/response models
+│   │   └── product_model.py         # Data access (product CRUD)
+│   └── order/
+│       ├── order_route.py           # /api/v1/orders/* endpoints
+│       ├── order_controller.py      # Thin orchestration layer
+│       ├── order_service.py         # Validation + calculation logic
+│       ├── order_schema.py          # Pydantic request/response models
+│       ├── order_model.py           # Data access (order CRUD)
+│       └── order_tasks.py           # Celery tasks (email + payment)
+├── core/                            # Shared config, security, logging
+│   ├── config.py                    # Reads .env via pydantic-settings
+│   ├── security.py                  # JWT + bcrypt + auth dependencies
+│   ├── logging.py                   # Loguru setup (console + file + JSON)
+│   └── exceptions.py                # Custom exception classes
+├── common/                          # Shared schemas + services
+│   ├── schemas/errors.py            # Error response Pydantic models
+│   └── services/http_client.py      # Reusable async HTTP client (httpx)
+├── middleware/                      # Request context + error handling
+│   ├── error_handler.py
+│   └── request_context.py
+└── tasks/                           # Celery configuration
+    └── celery_app.py                # Celery broker/backend config
 ```
 
-> **Barrel exports:** Every package uses `__init__.py` barrel re-exports. Import from the package directly:
+> **Barrel exports:** Each module uses `__init__.py` barrel re-exports. Import from the module directly:
 > ```python
-> from app.schemas import RegisterSchema, LoginSchema
+> from app.modules.auth import RegisterSchema, LoginSchema
+> from app.modules.product import CreateProductSchema, ProductResponseSchema
 > from app.core import settings, get_current_user
-> from app.models import create_user, find_user_by_email
 > ```
 
 ---
@@ -386,18 +394,20 @@ xcode-select --install
 
 ## 🧱 Adding a New Feature
 
-Follow this pattern when adding a new resource (e.g., Reviews):
+Follow this pattern when adding a new module (e.g., Reviews):
 
-1. **Schema** → Create `app/schemas/reviews.py` with Pydantic models
-2. **Model** → Create `app/models/review.py` with data access functions
-3. **Controller** → Create `app/controllers/review_controller.py` with business logic
-4. **Route** → Create `app/api/v1/routes/reviews.py` with thin route handlers
-5. **Register** → Add to `app/api/v1/router.py`:
+1. **Create module folder** → `app/modules/review/`
+2. **Schema** → Create `review_schema.py` with Pydantic models
+3. **Model** → Create `review_model.py` with data access functions
+4. **Service** → Create `review_service.py` with pure business logic (validation, calculations)
+5. **Controller** → Create `review_controller.py` — thin orchestration that calls service + model
+6. **Route** → Create `review_route.py` with thin route handlers
+7. **Init** → Create `__init__.py` with barrel exports
+8. **Register** → Add to `app/api/v1/router.py`:
    ```python
-   from app.api.v1.routes import reviews
-   router.include_router(reviews.router, prefix="/reviews", tags=["Reviews"])
+   from app.modules.review.review_route import router as review_router
+   router.include_router(review_router, prefix="/reviews", tags=["Reviews"])
    ```
-6. **Barrel exports** → Update the `__init__.py` in `schemas/`, `models/`, `controllers/`, and `routes/`
 
 ---
 

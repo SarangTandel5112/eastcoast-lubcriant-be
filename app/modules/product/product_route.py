@@ -1,30 +1,40 @@
 from fastapi import APIRouter, status, Depends, Query
 
-from app.schemas import CreateProductSchema, UpdateProductSchema, ProductResponseSchema, ProductListSchema
+from app.modules.product.product_schema import CreateProductSchema, UpdateProductSchema, ProductResponseSchema, ProductListSchema
 from app.core import require_admin
-from app.controllers import product_controller
+from app.modules.product import product_controller
 
 router = APIRouter()
 
 # ── Optional caching decorator ────────────────────────────
-try:
-    from fastapi_cache.decorator import cache as _cache
-    from fastapi_cache import FastAPICache
-    # Test if cache backend is initialized
-    _cache_available = True
-except Exception:
-    _cache_available = False
-
-
 def optional_cache(expire: int):
-    """Apply @cache only if Redis is available, otherwise no-op."""
-    if _cache_available:
+    """Apply @cache only if FastAPICache is initialized, otherwise no-op.
+    The check happens at request time, not import time."""
+    def decorator(func):
         try:
-            return _cache(expire=expire)
-        except Exception:
-            pass
-    # Return a no-op decorator
-    return lambda func: func
+            from fastapi_cache.decorator import cache as _cache
+            from fastapi_cache import FastAPICache
+
+            cached_func = _cache(expire=expire)(func)
+
+            async def wrapper(*args, **kwargs):
+                try:
+                    # Check if FastAPICache backend is initialized
+                    FastAPICache.get_backend()
+                    return await cached_func(*args, **kwargs)
+                except AssertionError:
+                    # Cache not initialized, skip caching
+                    return await func(*args, **kwargs)
+
+            # Preserve function metadata for FastAPI
+            wrapper.__name__ = func.__name__
+            wrapper.__doc__ = func.__doc__
+            import functools
+            functools.update_wrapper(wrapper, func)
+            return wrapper
+        except ImportError:
+            return func
+    return decorator
 
 
 @router.get("/", response_model=ProductListSchema)

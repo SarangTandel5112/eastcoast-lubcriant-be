@@ -6,8 +6,7 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=[
-        "app.tasks.email",
-        "app.tasks.payment",
+        "app.modules.order.order_tasks",
     ],
 )
 

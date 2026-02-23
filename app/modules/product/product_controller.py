@@ -1,21 +1,21 @@
-from fastapi import status
 from loguru import logger
 
-from app.schemas import (
+from app.modules.product.product_schema import (
     CreateProductSchema, UpdateProductSchema,
     ProductResponseSchema, ProductListSchema,
 )
-from app.core.exceptions import (
-    NotFoundError,
-    ValidationError,
-    ProductValidationError,
-    AuthorizationError
-)
-from app.models import (
+from app.core.exceptions import NotFoundError
+from app.modules.product.product_model import (
     create_product as model_create_product,
-    find_product_by_id, get_all_products,
+    find_product_by_id,
+    get_all_products,
     update_product as model_update_product,
     delete_product as model_delete_product,
+)
+from app.modules.product.product_service import (
+    validate_create_product,
+    validate_update_product,
+    paginate_products,
 )
 
 
@@ -23,16 +23,7 @@ async def list_products(
     page: int, limit: int, category: str = None, search: str = None
 ) -> ProductListSchema:
     products = get_all_products(category=category, search=search)
-    total = len(products)
-    start = (page - 1) * limit
-    paginated = products[start: start + limit]
-
-    return ProductListSchema(
-        products=[ProductResponseSchema(**p) for p in paginated],
-        total=total,
-        page=page,
-        limit=limit,
-    )
+    return paginate_products(products, page, limit)
 
 
 async def get_product(product_id: str) -> ProductResponseSchema:
@@ -43,15 +34,7 @@ async def get_product(product_id: str) -> ProductResponseSchema:
 
 
 async def create_product(body: CreateProductSchema, admin_user: dict) -> ProductResponseSchema:
-    # Validate product data
-    if body.price <= 0:
-        raise ProductValidationError("price", str(body.price), "Price must be greater than 0")
-    
-    if body.stock < 0:
-        raise ProductValidationError("stock", str(body.stock), "Stock cannot be negative")
-    
-    if not body.name or len(body.name.strip()) < 2:
-        raise ProductValidationError("name", body.name or "", "Product name must be at least 2 characters")
+    validate_create_product(body)
     
     product = model_create_product(data=body.model_dump(), admin_id=admin_user["user_id"])
     logger.info("Product created | product_id={} by admin={}", product["id"], admin_user["user_id"])
@@ -61,15 +44,7 @@ async def create_product(body: CreateProductSchema, admin_user: dict) -> Product
 async def update_product(
     product_id: str, body: UpdateProductSchema, admin_user: dict
 ) -> ProductResponseSchema:
-    # Validate update data
-    if body.price is not None and body.price <= 0:
-        raise ProductValidationError("price", str(body.price), "Price must be greater than 0")
-    
-    if body.stock is not None and body.stock < 0:
-        raise ProductValidationError("stock", str(body.stock), "Stock cannot be negative")
-    
-    if body.name is not None and len(body.name.strip()) < 2:
-        raise ProductValidationError("name", body.name, "Product name must be at least 2 characters")
+    validate_update_product(body)
     
     updated = model_update_product(product_id, body.model_dump(exclude_none=True))
     if not updated:
