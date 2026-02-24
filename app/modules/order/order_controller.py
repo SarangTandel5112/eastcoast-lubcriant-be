@@ -1,6 +1,7 @@
 from loguru import logger
 
-from app.modules.order.order_schema import CreateOrderSchema, OrderResponseSchema, OrderStatusEnum
+from app.modules.order.order_dto import CreateOrderRequestDTO, OrderResponseDTO, OrderStatusEnum
+from app.modules.order.order_dco import OrderDCO, OrderItemDCO, ShippingAddressDCO
 from app.core.exceptions import (
     NotFoundError,
     AuthorizationError,
@@ -23,7 +24,7 @@ from app.modules.order.order_service import (
 from app.modules.order.order_tasks import send_order_confirmation_email, process_payment
 
 
-async def create_order(body: CreateOrderSchema, current_user: dict) -> OrderResponseSchema:
+async def create_order(body: CreateOrderRequestDTO, current_user: dict) -> OrderResponseDTO:
     # Validate order data
     validate_order_items(body.items)
     validate_shipping_address(body.shipping_address)
@@ -32,63 +33,79 @@ async def create_order(body: CreateOrderSchema, current_user: dict) -> OrderResp
     total_amount = calculate_order_total(body.items)
     validate_order_total(total_amount)
 
+    # DTO → DCO conversion
+    dco = OrderDCO(
+        user_id=current_user["user_id"],
+        items=[
+            OrderItemDCO(
+                product_id=item.product_id,
+                quantity=item.quantity,
+                price=item.price,
+            )
+            for item in body.items
+        ],
+        shipping_address=ShippingAddressDCO(
+            full_name=body.shipping_address.full_name,
+            address_line1=body.shipping_address.address_line1,
+            address_line2=body.shipping_address.address_line2,
+            city=body.shipping_address.city,
+            state=body.shipping_address.state,
+            postal_code=body.shipping_address.postal_code,
+            country=body.shipping_address.country,
+        ),
+        total_amount=total_amount,
+    )
+
     try:
-        order = model_create_order(
-            user_id=current_user["user_id"],
-            items=[item.model_dump() for item in body.items],
-            shipping_address=body.shipping_address.model_dump(),
-            total_amount=total_amount,
-            payment_method=body.payment_method,
-        )
+        created = model_create_order(dco)
     except Exception as e:
         raise DatabaseError("create_order", str(e))
 
     # ── Fire background tasks (non-blocking, skipped if Redis/Celery unavailable)
     try:
-        process_payment.delay(order["id"], total_amount, body.payment_method)
-        send_order_confirmation_email.delay(current_user["user_id"], order["id"])
+        process_payment.delay(created.id, total_amount, body.payment_method)
+        send_order_confirmation_email.delay(current_user["user_id"], created.id)
     except Exception:
-        logger.warning("Celery not available, background tasks skipped | order_id={}", order["id"])
+        logger.warning("Celery not available, background tasks skipped | order_id={}", created.id)
 
     logger.info(
         "Order created | order_id={} user_id={} total={}",
-        order["id"], current_user["user_id"], total_amount,
+        created.id, current_user["user_id"], total_amount,
     )
-    return OrderResponseSchema(**order)
+    return OrderResponseDTO.from_dco(created)
 
 
-async def get_my_orders(current_user: dict) -> list[OrderResponseSchema]:
+async def get_my_orders(current_user: dict) -> list[OrderResponseDTO]:
     orders = get_orders_by_user(current_user["user_id"])
-    return [OrderResponseSchema(**o) for o in orders]
+    return [OrderResponseDTO.from_dco(o) for o in orders]
 
 
-async def get_order(order_id: str, current_user: dict) -> OrderResponseSchema:
+async def get_order(order_id: str, current_user: dict) -> OrderResponseDTO:
     order = find_order_by_id(order_id)
     if not order:
         raise NotFoundError("order", order_id)
 
     # Users can only see their own orders; admins can see all
-    if current_user["role"] != "admin" and order["user_id"] != current_user["user_id"]:
+    if current_user["role"] != "admin" and order.user_id != current_user["user_id"]:
         raise AuthorizationError(
             "Access denied",
             required_role="admin"
         )
 
-    return OrderResponseSchema(**order)
+    return OrderResponseDTO.from_dco(order)
 
 
 async def update_order_status(
     order_id: str, new_status: OrderStatusEnum
-) -> OrderResponseSchema:
+) -> OrderResponseDTO:
     try:
         order = find_order_by_id(order_id)
         if not order:
             raise NotFoundError("order", order_id)
 
-        current_status = order.get("status")
-        validate_status_transition(current_status, new_status.value)
+        validate_status_transition(order.status, new_status.value)
 
-        updated_order = model_update_order_status(order_id, new_status)
+        updated_order = model_update_order_status(order_id, new_status.value)
         if not updated_order:
             raise DatabaseError("update_order_status", "Failed to update order status")
 
@@ -98,4 +115,4 @@ async def update_order_status(
         raise DatabaseError("update_order_status", str(e))
 
     logger.info("Order status updated | order_id={} status={}", order_id, new_status)
-    return OrderResponseSchema(**updated_order)
+    return OrderResponseDTO.from_dco(updated_order)

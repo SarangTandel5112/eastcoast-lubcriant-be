@@ -1,12 +1,13 @@
 """Order module — order placement, tracking, status management."""
 
-from app.modules.order.order_schema import (
+from app.modules.order.order_dto import (
     OrderStatusEnum,
-    OrderItemSchema,
-    ShippingAddressSchema,
-    CreateOrderSchema,
-    OrderResponseSchema,
+    OrderItemRequestDTO,
+    ShippingAddressRequestDTO,
+    CreateOrderRequestDTO,
+    OrderResponseDTO,
 )
+from app.modules.order.order_dco import OrderDCO, OrderItemDCO, ShippingAddressDCO
 from app.modules.order.order_model import (
     create_order,
     find_order_by_id,
@@ -16,10 +17,13 @@ from app.modules.order.order_model import (
 
 __all__ = [
     "OrderStatusEnum",
-    "OrderItemSchema",
-    "ShippingAddressSchema",
-    "CreateOrderSchema",
-    "OrderResponseSchema",
+    "OrderItemRequestDTO",
+    "ShippingAddressRequestDTO",
+    "CreateOrderRequestDTO",
+    "OrderResponseDTO",
+    "OrderDCO",
+    "OrderItemDCO",
+    "ShippingAddressDCO",
     "create_order",
     "find_order_by_id",
     "get_orders_by_user",

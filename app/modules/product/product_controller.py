@@ -1,9 +1,10 @@
 from loguru import logger
 
-from app.modules.product.product_schema import (
-    CreateProductSchema, UpdateProductSchema,
-    ProductResponseSchema, ProductListSchema,
+from app.modules.product.product_dto import (
+    CreateProductRequestDTO, UpdateProductRequestDTO,
+    ProductResponseDTO, ProductListResponseDTO,
 )
+from app.modules.product.product_dco import ProductDCO
 from app.core.exceptions import NotFoundError
 from app.modules.product.product_model import (
     create_product as model_create_product,
@@ -21,37 +22,54 @@ from app.modules.product.product_service import (
 
 async def list_products(
     page: int, limit: int, category: str = None, search: str = None
-) -> ProductListSchema:
+) -> ProductListResponseDTO:
     products = get_all_products(category=category, search=search)
     return paginate_products(products, page, limit)
 
 
-async def get_product(product_id: str) -> ProductResponseSchema:
-    product = find_product_by_id(product_id)
-    if not product:
+async def get_product(product_id: str) -> ProductResponseDTO:
+    dco = find_product_by_id(product_id)
+    if not dco:
         raise NotFoundError("product", product_id)
-    return ProductResponseSchema(**product)
+    return ProductResponseDTO.from_dco(dco)
 
 
-async def create_product(body: CreateProductSchema, admin_user: dict) -> ProductResponseSchema:
+async def create_product(body: CreateProductRequestDTO, admin_user: dict) -> ProductResponseDTO:
     validate_create_product(body)
-    
-    product = model_create_product(data=body.model_dump(), admin_id=admin_user["user_id"])
-    logger.info("Product created | product_id={} by admin={}", product["id"], admin_user["user_id"])
-    return ProductResponseSchema(**product)
+
+    # DTO → DCO conversion
+    dco = ProductDCO(
+        name=body.name,
+        description=body.description,
+        price=body.price,
+        stock=body.stock,
+        category=body.category.value,
+        images=body.images,
+        tags=body.tags,
+        created_by=admin_user["user_id"],
+    )
+
+    created = model_create_product(dco)
+    logger.info("Product created | product_id={} by admin={}", created.id, admin_user["user_id"])
+    return ProductResponseDTO.from_dco(created)
 
 
 async def update_product(
-    product_id: str, body: UpdateProductSchema, admin_user: dict
-) -> ProductResponseSchema:
+    product_id: str, body: UpdateProductRequestDTO, admin_user: dict
+) -> ProductResponseDTO:
     validate_update_product(body)
-    
-    updated = model_update_product(product_id, body.model_dump(exclude_none=True))
+
+    update_data = body.model_dump(exclude_none=True)
+    # Convert category enum to string value if present
+    if "category" in update_data and update_data["category"] is not None:
+        update_data["category"] = update_data["category"].value
+
+    updated = model_update_product(product_id, update_data)
     if not updated:
         raise NotFoundError("product", product_id)
 
     logger.info("Product updated | product_id={}", product_id)
-    return ProductResponseSchema(**updated)
+    return ProductResponseDTO.from_dco(updated)
 
 
 async def delete_product(product_id: str, admin_user: dict) -> None:

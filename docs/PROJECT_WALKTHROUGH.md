@@ -28,13 +28,14 @@ graph TD
 
 | Layer | Location | Responsibility | Express Equivalent |
 |---|---|---|---|
-| **Route** | `modules/*/​*_route.py` | Accept HTTP request, call controller, return response | `routes/` |
-| **Controller** | `modules/*/​*_controller.py` | Thin orchestration — calls service + model | `controllers/` |
-| **Service** | `modules/*/​*_service.py` | Pure business logic, validation, calculations | Joi validators + helpers |
-| **Model** | `modules/*/​*_model.py` | Data access — CRUD operations on the database | `models/` (Mongoose) |
-| **Schema** | `modules/*/​*_schema.py` | Define shape of request/response data + validate | Joi / Zod schemas |
+| **Route** | `modules/*/ *_route.py` | Accept HTTP request, call controller, wrap in `respond()` | `routes/` |
+| **Controller** | `modules/*/ *_controller.py` | Bridge DTO↔DCO, calls service + model | `controllers/` |
+| **Service** | `modules/*/ *_service.py` | Pure business logic, validation, calculations | Joi validators + helpers |
+| **Model** | `modules/*/ *_model.py` | Data access — CRUD with DCOs | `models/` (Mongoose) |
+| **DTO** | `modules/*/ *_dto.py` | Request/response Pydantic models (API boundary) | Joi / Zod schemas |
+| **DCO** | `modules/*/ *_dco.py` | Domain Class Objects (typed internal entities) | TypeScript interfaces |
 | **Core** | `core/` | App config, auth, logging — shared utilities | `middleware/` + `config/` |
-| **Common** | `common/` | Shared schemas (errors) + services (HTTP client) | Shared utils |
+| **Common** | `common/` | Response wrapper, base DCO, HTTP client | Shared utils |
 | **Tasks** | `modules/order/order_tasks.py` | Background jobs (email, payments) | BullMQ workers |
 
 ---
@@ -208,12 +209,13 @@ sequenceDiagram
 
 ```python
 # In modules/product/product_route.py
-@router.post("/")
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_product(
-    body: CreateProductSchema,
+    body: CreateProductRequestDTO,
     admin: dict = Depends(require_admin),  # ← This is the guard
 ):
-    return await product_controller.create_product(body, admin)
+    product = await product_controller.create_product(body, admin)
+    return respond(data=product, message="Product created successfully", status_code=201)
 ```
 
 The `Depends(require_admin)` chain works like this:
@@ -291,32 +293,53 @@ sequenceDiagram
 
 ---
 
-## 📋 Schema Validation — The Gatekeeper
+## 📚 DTO & DCO Pattern — Data Transfer Objects & Domain Class Objects
 
-Schemas automatically validate every incoming request **before your code runs**. If validation fails, FastAPI returns `422 Unprocessable Entity` with details.
+This project separates **API data shapes** (DTOs) from **internal domain entities** (DCOs):
 
-### Example: What happens with bad data
+### DTO (Data Transfer Object) — API Boundary
 
+Pydantic `BaseModel` classes that validate incoming requests and shape outgoing responses:
+
+```python
+# modules/product/product_dto.py
+class CreateProductRequestDTO(BaseModel):
+    name: str = Field(..., min_length=2, max_length=200)
+    price: float = Field(..., gt=0)
+    category: CategoryEnum
+    # Extra fields are silently dropped (data pollution protection)
 ```
-POST /api/v1/auth/register
-{ "name": "J", "email": "not-an-email", "password": "123" }
+
+### DCO (Domain Class Object) — Internal Layer
+
+Python `@dataclass` objects used between controller ↔ service ↔ model:
+
+```python
+# modules/product/product_dco.py
+@dataclass
+class ProductDCO(BaseDCO):
+    name: str = ""
+    price: float = 0.0
+    category: str = ""
+    # ...
+    def to_dict(self) -> dict: ...      # for storage
+    @classmethod
+    def from_dict(cls, data) -> ...: ... # from storage
 ```
 
-**Result:** `422` error — your controller code never executes.
+### How they connect in the controller
 
-```json
-{
-  "detail": [
-    { "loc": ["body", "name"], "msg": "ensure this value has at least 2 characters" },
-    { "loc": ["body", "email"], "msg": "value is not a valid email address" },
-    { "loc": ["body", "password"], "msg": "ensure this value has at least 8 characters" }
-  ]
-}
+```python
+# Controller bridges DTO → DCO on input, DCO → DTO on output
+async def create_product(body: CreateProductRequestDTO, admin_user):
+    dco = ProductDCO(name=body.name, price=body.price, ...)  # DTO → DCO
+    created = model_create_product(dco)
+    return ProductResponseDTO.from_dco(created)                # DCO → DTO
 ```
 
 ### How schemas map to what you know
 
-| Schema rule | Express/Joi equivalent |
+| DTO rule | Express/Joi equivalent |
 |---|---|
 | `name: str = Field(..., min_length=2)` | `Joi.string().min(2).required()` |
 | `email: EmailStr` | `Joi.string().email()` |
@@ -458,8 +481,8 @@ Instead of reaching into deep file paths, each module re-exports its contents fr
 ```
 Without barrel exports (messy):              With barrel exports (clean):
 ───────────────────────────────────          ───────────────────────────────────
-from app.modules.auth.auth_schema import ...    from app.modules.auth import ...
-from app.modules.product.product_schema import ...  from app.modules.product import ...
+from app.modules.auth.auth_dto import ...        from app.modules.auth import ...
+from app.modules.product.product_dto import ...  from app.modules.product import ...
 from app.core.security import ...                from app.core import ...
 from app.core.config import ...                  from app.core import ...
 ```
@@ -472,33 +495,38 @@ from app.core.config import ...                  from app.core import ...
 
 | File | Lines | What it does |
 |---|---|---|
-| `main.py` | 86 | App creation, middleware, mounts v1_router, startup/shutdown |
-| `api/v1/router.py` | 15 | Central router registry — imports from all modules |
-| `core/config.py` | 37 | Reads `.env`, defines all config as typed Python attributes |
-| `core/security.py` | 69 | Password hashing, JWT create/decode, auth dependencies |
-| `core/logging.py` | 51 | Loguru setup: console + 3 log files |
-| `core/exceptions.py` | 171 | Custom exception hierarchy for all error types |
-| `common/schemas/errors.py` | 62 | Shared error response Pydantic models |
-| `common/services/http_client.py` | 52 | Reusable async HTTP client for external APIs |
-| `middleware/error_handler.py` | 188 | Global exception handler + error response formatting |
-| `middleware/request_context.py` | 52 | Request ID middleware for tracing |
-| `modules/auth/auth_schema.py` | 30 | Register, Login, Token, User response shapes |
-| `modules/auth/auth_model.py` | 36 | In-memory user store + create/find helpers |
-| `modules/auth/auth_service.py` | 65 | Register, login, refresh, profile business logic |
-| `modules/auth/auth_controller.py` | 18 | Thin orchestration — delegates to service |
-| `modules/auth/auth_route.py` | 28 | 4 thin auth endpoints |
-| `modules/product/product_schema.py` | 50 | Product create/update/response + category enum |
-| `modules/product/product_model.py` | 55 | In-memory product store + full CRUD + filtering |
-| `modules/product/product_service.py` | 51 | Product validation + pagination logic |
-| `modules/product/product_controller.py` | 58 | Product CRUD orchestration |
-| `modules/product/product_route.py` | 70 | 5 thin product endpoints (2 cached) |
-| `modules/order/order_schema.py` | 48 | Order items, shipping address, status enum |
-| `modules/order/order_model.py` | 46 | In-memory order store + create/find/update |
-| `modules/order/order_service.py` | 71 | Order validation + status transition logic |
-| `modules/order/order_controller.py` | 95 | Order creation + background task dispatch |
-| `modules/order/order_route.py` | 35 | 4 thin order endpoints |
-| `modules/order/order_tasks.py` | 82 | Celery tasks: email + payment (4 tasks) |
-| `tasks/celery_app.py` | 23 | Celery config (Redis as broker) |
+| `main.py` | ~86 | App creation, middleware, mounts v1_router, startup/shutdown |
+| `api/v1/router.py` | ~15 | Central router registry — imports from all modules |
+| `core/config.py` | ~37 | Reads `.env`, defines all config as typed Python attributes |
+| `core/security.py` | ~69 | Password hashing, JWT create/decode, auth dependencies |
+| `core/logging.py` | ~51 | Loguru setup: console + 3 log files |
+| `core/exceptions.py` | ~171 | Custom exception hierarchy for all error types |
+| `common/response.py` | ~62 | `respond()` / `error_respond()` generic response wrappers |
+| `common/base_dco.py` | ~12 | Base DCO dataclass with `id` and `created_at` |
+| `common/schemas/errors.py` | ~62 | Shared error response Pydantic models |
+| `common/services/http_client.py` | ~52 | Reusable async HTTP client for external APIs |
+| `middleware/error_handler.py` | ~160 | Global exception handler using `error_respond()` |
+| `middleware/request_context.py` | ~52 | Request ID middleware for tracing |
+| `modules/auth/auth_dto.py` | ~53 | Register, Login, Token, User DTOs |
+| `modules/auth/auth_dco.py` | ~38 | UserDCO domain dataclass |
+| `modules/auth/auth_model.py` | ~38 | In-memory user store + create/find (returns DCOs) |
+| `modules/auth/auth_service.py` | ~75 | Register, login, refresh, profile logic (DTO↔DCO) |
+| `modules/auth/auth_controller.py` | ~22 | Typed delegation to service |
+| `modules/auth/auth_route.py` | ~33 | 4 auth endpoints with `respond()` |
+| `modules/product/product_dto.py` | ~80 | Product create/update/response DTOs + category enum |
+| `modules/product/product_dco.py` | ~52 | ProductDCO domain dataclass |
+| `modules/product/product_model.py` | ~60 | In-memory product store + full CRUD (returns DCOs) |
+| `modules/product/product_service.py` | ~45 | Product validation + pagination logic |
+| `modules/product/product_controller.py` | ~78 | Product CRUD orchestration (DTO↔DCO bridging) |
+| `modules/product/product_route.py` | ~88 | 5 product endpoints with `respond()` (2 cached) |
+| `modules/order/order_dto.py` | ~104 | Order items, shipping address, status DTOs |
+| `modules/order/order_dco.py` | ~107 | OrderDCO, OrderItemDCO, ShippingAddressDCO |
+| `modules/order/order_model.py` | ~51 | In-memory order store + create/find (returns DCOs) |
+| `modules/order/order_service.py` | ~68 | Order validation + status transition logic |
+| `modules/order/order_controller.py` | ~110 | Order creation + background task dispatch (DTO↔DCO) |
+| `modules/order/order_route.py` | ~40 | 4 order endpoints with `respond()` |
+| `modules/order/order_tasks.py` | ~82 | Celery tasks: email + payment (4 tasks) |
+| `tasks/celery_app.py` | ~23 | Celery config (Redis as broker) |
 
 ---
 

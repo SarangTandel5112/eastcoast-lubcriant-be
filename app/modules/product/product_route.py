@@ -1,10 +1,12 @@
 from fastapi import APIRouter, status, Depends, Query
 
-from app.modules.product.product_schema import CreateProductSchema, UpdateProductSchema, ProductResponseSchema, ProductListSchema
+from app.modules.product.product_dto import CreateProductRequestDTO, UpdateProductRequestDTO
+from app.common.response import respond
 from app.core import require_admin
 from app.modules.product import product_controller
 
 router = APIRouter()
+
 
 # ── Optional caching decorator ────────────────────────────
 def optional_cache(expire: int):
@@ -37,7 +39,7 @@ def optional_cache(expire: int):
     return decorator
 
 
-@router.get("/", response_model=ProductListSchema)
+@router.get("/")
 @optional_cache(expire=60)
 async def get_products(
     page: int = Query(1, ge=1),
@@ -45,30 +47,38 @@ async def get_products(
     category: str = Query(None),
     search: str = Query(None),
 ):
-    return await product_controller.list_products(page, limit, category, search)
+    result = await product_controller.list_products(page, limit, category, search)
+    return respond(
+        data=result,
+        message="Products fetched",
+        meta={"total": result.total, "page": result.page, "limit": result.limit},
+    )
 
 
-@router.get("/{product_id}", response_model=ProductResponseSchema)
+@router.get("/{product_id}")
 @optional_cache(expire=120)
 async def get_product(product_id: str):
-    return await product_controller.get_product(product_id)
+    product = await product_controller.get_product(product_id)
+    return respond(data=product, message="Product fetched")
 
 
-@router.post("/", response_model=ProductResponseSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_product(
-    body: CreateProductSchema,
+    body: CreateProductRequestDTO,
     admin: dict = Depends(require_admin),
 ):
-    return await product_controller.create_product(body, admin)
+    product = await product_controller.create_product(body, admin)
+    return respond(data=product, message="Product created successfully", status_code=201)
 
 
-@router.patch("/{product_id}", response_model=ProductResponseSchema)
+@router.patch("/{product_id}")
 async def update_product(
     product_id: str,
-    body: UpdateProductSchema,
+    body: UpdateProductRequestDTO,
     admin: dict = Depends(require_admin),
 ):
-    return await product_controller.update_product(product_id, body, admin)
+    product = await product_controller.update_product(product_id, body, admin)
+    return respond(data=product, message="Product updated successfully")
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
