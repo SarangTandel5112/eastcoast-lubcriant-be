@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
 from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, NotFoundError
@@ -28,33 +29,33 @@ from app.modules.auth.auth_model import (
 )
 
 
-def _issue_token_pair(user: UserDCO) -> TokenResponseDTO:
+async def _issue_token_pair(session: AsyncSession, user: UserDCO) -> TokenResponseDTO:
     refresh_jti = str(uuid4())
     token_data = {"sub": user.id, "role": user.role}
 
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data, refresh_jti)
 
-    set_current_refresh_jti(user.id, refresh_jti)
+    await set_current_refresh_jti(session, user.id, refresh_jti)
 
     return TokenResponseDTO(access_token=access_token, refresh_token=refresh_token)
 
 
-def _assert_phone_available(phone: str | None, exclude_user_id: str | None = None) -> None:
+async def _assert_phone_available(session: AsyncSession, phone: str | None, exclude_user_id: str | None = None) -> None:
     if not phone:
         return
 
-    existing = find_users_by_phone(phone, include_deleted=False)
+    existing = await find_users_by_phone(session, phone, include_deleted=False)
     for user in existing:
         if exclude_user_id and user.id == exclude_user_id:
             continue
         raise ConflictError(message="Phone already registered", resource="user", field="phone")
 
 
-async def register_user(body: RegisterRequestDTO) -> UserResponseDTO:
-    if find_user_by_email(body.email, include_deleted=True):
+async def register_user(session: AsyncSession, body: RegisterRequestDTO) -> UserResponseDTO:
+    if await find_user_by_email(session, body.email, include_deleted=True):
         raise ConflictError(message="Email already registered", resource="user", field="email")
-    _assert_phone_available(body.phone)
+    await _assert_phone_available(session, body.phone)
 
     hashed = hash_password(body.password)
 
@@ -68,19 +69,19 @@ async def register_user(body: RegisterRequestDTO) -> UserResponseDTO:
         phone=body.phone,
         is_active=True,
     )
-    created = create_user(dco)
+    created = await create_user(session, dco)
 
     logger.info("User registered | user_id={} email={}", created.id, created.email)
     return UserResponseDTO.from_dco(created)
 
 
-async def create_user_by_admin(body: AdminCreateUserRequestDTO, admin_user: dict) -> UserResponseDTO:
+async def create_user_by_admin(session: AsyncSession, body: AdminCreateUserRequestDTO, admin_user: dict) -> UserResponseDTO:
     if admin_user.get("role") != "ADMIN":
         raise AuthorizationError("Only admins can create users", required_role="ADMIN")
 
-    if find_user_by_email(body.email, include_deleted=True):
+    if await find_user_by_email(session, body.email, include_deleted=True):
         raise ConflictError(message="Email already registered", resource="user", field="email")
-    _assert_phone_available(body.phone)
+    await _assert_phone_available(session, body.phone)
 
     dco = UserDCO(
         role=body.role.value,
@@ -92,7 +93,7 @@ async def create_user_by_admin(body: AdminCreateUserRequestDTO, admin_user: dict
         phone=body.phone,
         is_active=body.is_active,
     )
-    created = create_user(dco)
+    created = await create_user(session, dco)
 
     logger.info(
         "User created by admin | admin_id={} user_id={} role={}",
@@ -103,7 +104,7 @@ async def create_user_by_admin(body: AdminCreateUserRequestDTO, admin_user: dict
     return UserResponseDTO.from_dco(created)
 
 
-async def login_user(body: LoginRequestDTO) -> TokenResponseDTO:
+async def login_user(session: AsyncSession, body: LoginRequestDTO) -> TokenResponseDTO:
     lookup_email = body.email
     lookup_phone = body.phone
 
@@ -115,9 +116,9 @@ async def login_user(body: LoginRequestDTO) -> TokenResponseDTO:
 
     user = None
     if lookup_email:
-        user = find_user_by_email(lookup_email)
+        user = await find_user_by_email(session, lookup_email)
     elif lookup_phone:
-        candidates = find_users_by_phone(lookup_phone)
+        candidates = await find_users_by_phone(session, lookup_phone)
         if len(candidates) > 1:
             raise AuthenticationError("Multiple accounts use this phone. Please login with email")
         if candidates:
@@ -129,16 +130,16 @@ async def login_user(body: LoginRequestDTO) -> TokenResponseDTO:
     if not user.is_active:
         raise AuthenticationError("Account is inactive. Contact administrator")
 
-    set_last_login(user.id)
-    user = find_user_by_id(user.id)
+    await set_last_login(session, user.id)
+    user = await find_user_by_id(session, user.id)
     if not user:
         raise AuthenticationError("Unable to load user session")
 
     logger.info("User logged in | user_id={} role={}", user.id, user.role)
-    return _issue_token_pair(user)
+    return await _issue_token_pair(session, user)
 
 
-async def refresh_user_token(body: RefreshTokenRequestDTO) -> TokenResponseDTO:
+async def refresh_user_token(session: AsyncSession, body: RefreshTokenRequestDTO) -> TokenResponseDTO:
     try:
         payload = decode_token(body.refresh_token)
     except Exception as exc:
@@ -152,7 +153,7 @@ async def refresh_user_token(body: RefreshTokenRequestDTO) -> TokenResponseDTO:
     if not user_id or not refresh_jti:
         raise AuthenticationError("Malformed refresh token")
 
-    user = find_user_by_id(user_id)
+    user = await find_user_by_id(session, user_id)
     if not user:
         raise AuthenticationError("Invalid refresh token")
 
@@ -163,55 +164,56 @@ async def refresh_user_token(body: RefreshTokenRequestDTO) -> TokenResponseDTO:
         raise AuthenticationError("Refresh token already rotated or revoked")
 
     logger.info("Token refreshed | user_id={}", user.id)
-    return _issue_token_pair(user)
+    return await _issue_token_pair(session, user)
 
 
-async def logout_user(user_id: str) -> None:
-    set_current_refresh_jti(user_id, None)
+async def logout_user(session: AsyncSession, user_id: str) -> None:
+    await set_current_refresh_jti(session, user_id, None)
     logger.info("User logged out | user_id={}", user_id)
 
 
-async def get_user_profile(user_id: str) -> UserResponseDTO:
-    user = find_user_by_id(user_id)
+async def get_user_profile(session: AsyncSession, user_id: str) -> UserResponseDTO:
+    user = await find_user_by_id(session, user_id)
     if not user:
         raise NotFoundError("user", user_id)
 
     return UserResponseDTO.from_dco(user)
 
 
-async def list_users_for_admin(current_user: dict, role: str | None, is_active: bool | None) -> list[UserResponseDTO]:
+async def list_users_for_admin(session: AsyncSession, current_user: dict, role: str | None, is_active: bool | None) -> list[UserResponseDTO]:
     if current_user.get("role") != "ADMIN":
         raise AuthorizationError("Only admins can list users", required_role="ADMIN")
 
-    users = list_users(role=role, is_active=is_active)
+    users = await list_users(session, role=role, is_active=is_active)
     return [UserResponseDTO.from_dco(user) for user in users]
 
 
-async def get_user_by_id(target_user_id: str, current_user: dict) -> UserResponseDTO:
+async def get_user_by_id(session: AsyncSession, target_user_id: str, current_user: dict) -> UserResponseDTO:
     is_owner = current_user.get("user_id") == target_user_id
     is_admin = current_user.get("role") == "ADMIN"
 
     if not is_owner and not is_admin:
         raise AuthorizationError("You can only access your own user record", required_role="ADMIN")
 
-    user = find_user_by_id(target_user_id)
+    user = await find_user_by_id(session, target_user_id)
     if not user:
         raise NotFoundError("user", target_user_id)
 
     return UserResponseDTO.from_dco(user)
 
 
-async def update_my_profile(current_user: dict, body: UpdateMyProfileRequestDTO) -> UserResponseDTO:
+async def update_my_profile(session: AsyncSession, current_user: dict, body: UpdateMyProfileRequestDTO) -> UserResponseDTO:
     updates = body.model_dump(exclude_none=True)
     if "phone" in updates:
-        _assert_phone_available(updates["phone"], exclude_user_id=current_user["user_id"])
+        await _assert_phone_available(session, updates["phone"], exclude_user_id=current_user["user_id"])
+        
     if not updates:
-        user = find_user_by_id(current_user["user_id"])
+        user = await find_user_by_id(session, current_user["user_id"])
         if not user:
             raise NotFoundError("user", current_user["user_id"])
         return UserResponseDTO.from_dco(user)
 
-    updated_user = update_user(current_user["user_id"], updates)
+    updated_user = await update_user(session, current_user["user_id"], updates)
     if not updated_user:
         raise NotFoundError("user", current_user["user_id"])
 
@@ -220,6 +222,7 @@ async def update_my_profile(current_user: dict, body: UpdateMyProfileRequestDTO)
 
 
 async def update_user_by_admin(
+    session: AsyncSession,
     target_user_id: str,
     body: AdminUpdateUserRequestDTO,
     admin_user: dict,
@@ -227,7 +230,7 @@ async def update_user_by_admin(
     if admin_user.get("role") != "ADMIN":
         raise AuthorizationError("Only admins can update users", required_role="ADMIN")
 
-    existing = find_user_by_id(target_user_id)
+    existing = await find_user_by_id(session, target_user_id)
     if not existing:
         raise NotFoundError("user", target_user_id)
 
@@ -241,12 +244,12 @@ async def update_user_by_admin(
         updates["current_refresh_jti"] = None
 
     if "phone" in updates:
-        _assert_phone_available(updates["phone"], exclude_user_id=target_user_id)
+        await _assert_phone_available(session, updates["phone"], exclude_user_id=target_user_id)
 
     if "is_active" in updates and updates["is_active"] is False:
         updates["current_refresh_jti"] = None
 
-    updated_user = update_user(target_user_id, updates)
+    updated_user = await update_user(session, target_user_id, updates)
     if not updated_user:
         raise NotFoundError("user", target_user_id)
 
@@ -258,11 +261,11 @@ async def update_user_by_admin(
     return UserResponseDTO.from_dco(updated_user)
 
 
-async def delete_user_by_admin(target_user_id: str, admin_user: dict) -> None:
+async def delete_user_by_admin(session: AsyncSession, target_user_id: str, admin_user: dict) -> None:
     if admin_user.get("role") != "ADMIN":
         raise AuthorizationError("Only admins can delete users", required_role="ADMIN")
 
-    if not soft_delete_user(target_user_id):
+    if not await soft_delete_user(session, target_user_id):
         raise NotFoundError("user", target_user_id)
 
     logger.info(

@@ -1,157 +1,154 @@
-"""In-memory user persistence layer (replace with real DB repository later)."""
+"""Auth model layer — async database operations for the `users` table."""
 
-from datetime import datetime, timezone
-import re
 from typing import Optional
-from uuid import uuid4
+import uuid
+from datetime import datetime, timezone
+
+from loguru import logger
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.auth_dco import UserDCO
+from app.modules.auth.auth_entity import UserEntity
 
 
-_users_by_id: dict[str, dict] = {}
-_email_to_user_id: dict[str, str] = {}
-_phone_to_user_ids: dict[str, set[str]] = {}
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
+def _entity_to_dco(entity: UserEntity) -> UserDCO:
+    """Convert a SQLAlchemy entity to a domain object."""
+    return UserDCO(
+        id=str(entity.id),
+        role=entity.role,
+        business_name=entity.business_name,
+        email=entity.email,
+        password_hash=entity.password_hash,
+        province=entity.province,
+        contact_name=entity.contact_name,
+        phone=entity.phone,
+        is_active=entity.is_active,
+        last_login_at=entity.last_login_at.isoformat() if entity.last_login_at else None,
+        created_at=entity.created_at.isoformat() if entity.created_at else "",
+        updated_at=entity.updated_at.isoformat() if entity.updated_at else "",
+        deleted_at=entity.deleted_at.isoformat() if entity.deleted_at else None,
+        current_refresh_jti=entity.current_refresh_jti,
+    )
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _dco_to_entity(dco: UserDCO) -> UserEntity:
+    """Convert a domain object to a new SQLAlchemy entity for INSERT."""
+    return UserEntity(
+        role=dco.role,
+        business_name=dco.business_name,
+        email=dco.email,
+        password_hash=dco.password_hash,
+        province=dco.province,
+        contact_name=dco.contact_name,
+        phone=dco.phone,
+        is_active=dco.is_active,
+    )
 
+async def create_user(session: AsyncSession, dco: UserDCO) -> UserDCO:
+    """Insert a new user row and return the hydrated DCO."""
+    entity = _dco_to_entity(dco)
+    session.add(entity)
+    await session.flush()           # populate id + created_at from DB
+    await session.refresh(entity)
 
-def _normalize_email(email: str) -> str:
-    return email.strip().lower()
+    logger.debug("User row inserted | id={}", entity.id)
+    return _entity_to_dco(entity)
 
+async def find_user_by_email(session: AsyncSession, email: str, include_deleted: bool = False) -> Optional[UserDCO]:
+    """Lookup a user by email. Returns None if not found."""
+    stmt = select(UserEntity).where(UserEntity.email == email)
+    if not include_deleted:
+        stmt = stmt.where(UserEntity.deleted_at.is_(None))
+        
+    result = await session.execute(stmt)
+    entity = result.scalar_one_or_none()
+    return _entity_to_dco(entity) if entity else None
 
-def _normalize_phone(phone: str) -> str:
-    stripped = phone.strip()
-    if stripped.startswith("+"):
-        return "+" + re.sub(r"\D", "", stripped[1:])
-    return re.sub(r"\D", "", stripped)
-
-
-def create_user(dco: UserDCO) -> UserDCO:
-    """Persist a new user and return the hydrated DCO with generated uuid."""
-    now = _utc_now_iso()
-    dco.id = str(uuid4())
-    dco.email = _normalize_email(dco.email)
-    dco.created_at = now
-    dco.updated_at = now
-
-    _users_by_id[dco.id] = dco.to_dict()
-    _email_to_user_id[dco.email] = dco.id
-    if dco.phone:
-        normalized_phone = _normalize_phone(dco.phone)
-        _phone_to_user_ids.setdefault(normalized_phone, set()).add(dco.id)
-    return dco
-
-
-def find_user_by_email(email: str, include_deleted: bool = False) -> Optional[UserDCO]:
-    normalized_email = _normalize_email(email)
-    user_id = _email_to_user_id.get(normalized_email)
-    if not user_id:
+async def find_user_by_id(session: AsyncSession, user_id: str, include_deleted: bool = False) -> Optional[UserDCO]:
+    """Lookup a user by UUID. Returns None if not found."""
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
         return None
 
-    data = _users_by_id.get(user_id)
-    if not data:
+    stmt = select(UserEntity).where(UserEntity.id == uid)
+    if not include_deleted:
+        stmt = stmt.where(UserEntity.deleted_at.is_(None))
+
+    result = await session.execute(stmt)
+    entity = result.scalar_one_or_none()
+    return _entity_to_dco(entity) if entity else None
+
+async def find_users_by_phone(session: AsyncSession, phone: str, include_deleted: bool = False) -> list[UserDCO]:
+    stmt = select(UserEntity).where(UserEntity.phone == phone)
+    if not include_deleted:
+        stmt = stmt.where(UserEntity.deleted_at.is_(None))
+        
+    result = await session.execute(stmt)
+    entities = result.scalars().all()
+    return [_entity_to_dco(e) for e in entities]
+
+async def list_users(session: AsyncSession, role: str | None = None, is_active: bool | None = None) -> list[UserDCO]:
+    stmt = select(UserEntity).where(UserEntity.deleted_at.is_(None))
+    
+    if role is not None:
+        stmt = stmt.where(UserEntity.role == role)
+    if is_active is not None:
+        stmt = stmt.where(UserEntity.is_active == is_active)
+        
+    stmt = stmt.order_by(UserEntity.created_at.desc())
+        
+    result = await session.execute(stmt)
+    entities = result.scalars().all()
+    return [_entity_to_dco(e) for e in entities]
+
+async def update_user(session: AsyncSession, user_id: str, updates: dict) -> Optional[UserDCO]:
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
         return None
 
-    if data.get("deleted_at") and not include_deleted:
+    stmt = select(UserEntity).where(UserEntity.id == uid, UserEntity.deleted_at.is_(None))
+    result = await session.execute(stmt)
+    entity = result.scalar_one_or_none()
+    if not entity:
         return None
 
-    return UserDCO.from_dict(data)
+    updates.pop("email", None) # prevent email change
+    
+    for key, value in updates.items():
+        if hasattr(entity, key):
+            setattr(entity, key, value)
 
+    await session.flush()
+    await session.refresh(entity)
+    return _entity_to_dco(entity)
 
-def find_user_by_id(user_id: str, include_deleted: bool = False) -> Optional[UserDCO]:
-    data = _users_by_id.get(user_id)
-    if not data:
-        return None
+async def set_last_login(session: AsyncSession, user_id: str) -> Optional[UserDCO]:
+    return await update_user(session, user_id, {"last_login_at": _utc_now()})
 
-    if data.get("deleted_at") and not include_deleted:
-        return None
+async def set_current_refresh_jti(session: AsyncSession, user_id: str, refresh_jti: str | None) -> Optional[UserDCO]:
+    return await update_user(session, user_id, {"current_refresh_jti": refresh_jti})
 
-    return UserDCO.from_dict(data)
-
-
-def find_users_by_phone(phone: str, include_deleted: bool = False) -> list[UserDCO]:
-    normalized_phone = _normalize_phone(phone)
-    user_ids = _phone_to_user_ids.get(normalized_phone, set())
-    users: list[UserDCO] = []
-
-    for user_id in user_ids:
-        data = _users_by_id.get(user_id)
-        if not data:
-            continue
-        if data.get("deleted_at") and not include_deleted:
-            continue
-        users.append(UserDCO.from_dict(data))
-
-    return users
-
-
-def list_users(role: str | None = None, is_active: bool | None = None) -> list[UserDCO]:
-    users: list[UserDCO] = []
-
-    for data in _users_by_id.values():
-        if data.get("deleted_at"):
-            continue
-
-        if role is not None and data.get("role") != role:
-            continue
-
-        if is_active is not None and data.get("is_active") is not is_active:
-            continue
-
-        users.append(UserDCO.from_dict(data))
-
-    users.sort(key=lambda user: user.created_at, reverse=True)
-    return users
-
-
-def update_user(user_id: str, updates: dict) -> Optional[UserDCO]:
-    existing = _users_by_id.get(user_id)
-    if not existing or existing.get("deleted_at"):
-        return None
-
-    # Email updates are intentionally unsupported for simplicity and uniqueness safety.
-    updates.pop("email", None)
-
-    previous_phone = existing.get("phone")
-    next_phone = updates.get("phone", previous_phone)
-
-    updated = {**existing, **updates, "updated_at": _utc_now_iso()}
-    _users_by_id[user_id] = updated
-
-    # Maintain phone lookup index when phone changes.
-    if previous_phone != next_phone:
-        if previous_phone:
-            normalized_old_phone = _normalize_phone(previous_phone)
-            user_ids = _phone_to_user_ids.get(normalized_old_phone, set())
-            user_ids.discard(user_id)
-            if not user_ids and normalized_old_phone in _phone_to_user_ids:
-                _phone_to_user_ids.pop(normalized_old_phone, None)
-        if next_phone:
-            normalized_new_phone = _normalize_phone(next_phone)
-            _phone_to_user_ids.setdefault(normalized_new_phone, set()).add(user_id)
-
-    return UserDCO.from_dict(updated)
-
-
-def set_last_login(user_id: str) -> Optional[UserDCO]:
-    return update_user(user_id, {"last_login_at": _utc_now_iso()})
-
-
-def set_current_refresh_jti(user_id: str, refresh_jti: str | None) -> Optional[UserDCO]:
-    return update_user(user_id, {"current_refresh_jti": refresh_jti})
-
-
-def soft_delete_user(user_id: str) -> bool:
-    existing = _users_by_id.get(user_id)
-    if not existing or existing.get("deleted_at"):
+async def soft_delete_user(session: AsyncSession, user_id: str) -> bool:
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
         return False
 
-    deleted_at = _utc_now_iso()
-    existing["deleted_at"] = deleted_at
-    existing["updated_at"] = deleted_at
-    existing["is_active"] = False
-    existing["current_refresh_jti"] = None
-    _users_by_id[user_id] = existing
+    stmt = select(UserEntity).where(UserEntity.id == uid, UserEntity.deleted_at.is_(None))
+    result = await session.execute(stmt)
+    entity = result.scalar_one_or_none()
+    
+    if not entity:
+        return False
+
+    entity.deleted_at = _utc_now()
+    entity.is_active = False
+    entity.current_refresh_jti = None
+    
+    await session.flush()
     return True

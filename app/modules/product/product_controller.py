@@ -1,4 +1,5 @@
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.product.product_dto import (
     CreateProductRequestDTO, UpdateProductRequestDTO,
@@ -21,23 +22,24 @@ from app.modules.product.product_service import (
 
 
 async def list_products(
-    page: int, limit: int, category: str = None, search: str = None
+    session: AsyncSession, page: int, limit: int, category: str = None, search: str = None
 ) -> ProductListResponseDTO:
-    products = get_all_products(category=category, search=search)
+    products = await get_all_products(session, category=category, search=search)
     return paginate_products(products, page, limit)
 
 
-async def get_product(product_id: str) -> ProductResponseDTO:
-    dco = find_product_by_id(product_id)
+async def get_product(session: AsyncSession, product_id: str) -> ProductResponseDTO:
+    dco = await find_product_by_id(session, product_id)
     if not dco:
         raise NotFoundError("product", product_id)
     return ProductResponseDTO.from_dco(dco)
 
 
-async def create_product(body: CreateProductRequestDTO, admin_user: dict) -> ProductResponseDTO:
+async def create_product(
+    session: AsyncSession, body: CreateProductRequestDTO, admin_user: dict
+) -> ProductResponseDTO:
     validate_create_product(body)
 
-    # DTO → DCO conversion
     dco = ProductDCO(
         name=body.name,
         description=body.description,
@@ -49,22 +51,21 @@ async def create_product(body: CreateProductRequestDTO, admin_user: dict) -> Pro
         created_by=admin_user["user_id"],
     )
 
-    created = model_create_product(dco)
+    created = await model_create_product(session, dco)
     logger.info("Product created | product_id={} by admin={}", created.id, admin_user["user_id"])
     return ProductResponseDTO.from_dco(created)
 
 
 async def update_product(
-    product_id: str, body: UpdateProductRequestDTO, admin_user: dict
+    session: AsyncSession, product_id: str, body: UpdateProductRequestDTO, admin_user: dict
 ) -> ProductResponseDTO:
     validate_update_product(body)
 
     update_data = body.model_dump(exclude_none=True)
-    # Convert category enum to string value if present
     if "category" in update_data and update_data["category"] is not None:
         update_data["category"] = update_data["category"].value
 
-    updated = model_update_product(product_id, update_data)
+    updated = await model_update_product(session, product_id, update_data)
     if not updated:
         raise NotFoundError("product", product_id)
 
@@ -72,7 +73,7 @@ async def update_product(
     return ProductResponseDTO.from_dco(updated)
 
 
-async def delete_product(product_id: str, admin_user: dict) -> None:
-    if not model_delete_product(product_id):
+async def delete_product(session: AsyncSession, product_id: str, admin_user: dict) -> None:
+    if not await model_delete_product(session, product_id):
         raise NotFoundError("product", product_id)
     logger.info("Product deleted | product_id={}", product_id)

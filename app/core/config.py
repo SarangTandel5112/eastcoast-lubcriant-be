@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = ""
     aws_region: str = "us-east-1"
 
+    # Database (Supabase Postgres)
+    database_url: str = ""       # postgresql+asyncpg://user:pass@host:port/db
+
+    # Supabase client (for auth/storage SDK features)
+    supabase_url: str = ""       # https://xxxxx.supabase.co
+    supabase_key: str = ""       # anon or service_role key
+
+
     # Documentation access (for protecting Swagger/ReDoc)
     docs_username: str = Field(default="admin", description="Username for API docs access")
     docs_password: str = Field(default="", description="Password for API docs access")

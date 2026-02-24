@@ -1,4 +1,5 @@
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     OrderValidationError,
@@ -91,33 +92,18 @@ def validate_status_transition(current_status: str, new_status: str) -> None:
 
 
 async def create_order(
+    session: AsyncSession,
     body: CreateOrderRequestDTO,
     current_user: dict
 ) -> OrderResponseDTO:
-    """
-    Create a new order for the authenticated user.
-
-    Args:
-        body: Order creation data
-        current_user: Current authenticated user
-
-    Returns:
-        Created order details
-
-    Raises:
-        OrderValidationError: If validation fails
-        DatabaseError: If order creation fails
-    """
-    # Validate order data
+    """Create a new order for the authenticated user."""
     validate_order_items(body.items)
     validate_shipping_address(body.shipping_address)
     validate_payment_method(body.payment_method)
 
-    # Calculate and validate total
     total_amount = calculate_order_total(body.items)
     validate_order_total(total_amount)
 
-    # Sanitize shipping address inputs
     sanitized_address = ShippingAddressDCO(
         full_name=sanitize_text(body.shipping_address.full_name),
         address_line1=sanitize_text(body.shipping_address.address_line1),
@@ -128,7 +114,6 @@ async def create_order(
         country=body.shipping_address.country,
     )
 
-    # DTO → DCO conversion
     dco = OrderDCO(
         user_id=current_user["user_id"],
         items=[
@@ -143,9 +128,8 @@ async def create_order(
         total_amount=total_amount,
     )
 
-    # Persist to database
     try:
-        created = model_create_order(dco)
+        created = await model_create_order(session, dco)
     except Exception as e:
         logger.error("Failed to create order | error={}", str(e))
         raise DatabaseError("create_order", str(e))
@@ -175,38 +159,15 @@ async def create_order(
     return OrderResponseDTO.from_dco(created)
 
 
-async def get_my_orders(current_user: dict) -> list[OrderResponseDTO]:
-    """
-    Get all orders for the current user.
-
-    Args:
-        current_user: Current authenticated user
-
-    Returns:
-        List of user's orders
-    """
-    orders = get_orders_by_user(current_user["user_id"])
+async def get_my_orders(session: AsyncSession, current_user: dict) -> list[OrderResponseDTO]:
+    """Get all orders for the current user."""
+    orders = await get_orders_by_user(session, current_user["user_id"])
     return [OrderResponseDTO.from_dco(o) for o in orders]
 
 
-async def get_order(order_id: str, current_user: dict) -> OrderResponseDTO:
-    """
-    Get a specific order by ID.
-
-    Users can only access their own orders unless they're admin.
-
-    Args:
-        order_id: The order ID to retrieve
-        current_user: Current authenticated user
-
-    Returns:
-        Order details
-
-    Raises:
-        NotFoundError: If order doesn't exist
-        AuthorizationError: If user doesn't have access to this order
-    """
-    order = find_order_by_id(order_id)
+async def get_order(session: AsyncSession, order_id: str, current_user: dict) -> OrderResponseDTO:
+    """Get a specific order by ID."""
+    order = await find_order_by_id(session, order_id)
     if not order:
         raise NotFoundError("order", order_id)
 
@@ -221,37 +182,20 @@ async def get_order(order_id: str, current_user: dict) -> OrderResponseDTO:
 
 
 async def update_order_status(
+    session: AsyncSession,
     order_id: str,
     new_status: OrderStatusEnum,
     admin_user: dict
 ) -> OrderResponseDTO:
-    """
-    Update order status (admin only).
-
-    Args:
-        order_id: ID of order to update
-        new_status: New status to set
-        admin_user: Admin user updating the status
-
-    Returns:
-        Updated order details
-
-    Raises:
-        NotFoundError: If order doesn't exist
-        OrderValidationError: If status transition is invalid
-        DatabaseError: If update fails
-    """
+    """Update order status (admin only)."""
     try:
-        # Find existing order
-        order = find_order_by_id(order_id)
+        order = await find_order_by_id(session, order_id)
         if not order:
             raise NotFoundError("order", order_id)
 
-        # Validate status transition
         validate_status_transition(order.status, new_status.value)
 
-        # Update in database
-        updated_order = model_update_order_status(order_id, new_status.value)
+        updated_order = await model_update_order_status(session, order_id, new_status.value)
         if not updated_order:
             raise DatabaseError("update_order_status", "Failed to update order status")
 
