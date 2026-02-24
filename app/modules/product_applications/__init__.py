@@ -1,0 +1,1 @@
+from .product_applications_entity import ProductApplication

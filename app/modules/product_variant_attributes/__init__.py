@@ -1,0 +1,1 @@
+from .product_variant_attributes_entity import ProductVariantAttribute
