@@ -1,9 +1,10 @@
-from fastapi import APIRouter, status, Depends, Query
+from fastapi import APIRouter, status, Depends, Query, Request
 
 from app.modules.product.product_dto import CreateProductRequestDTO, UpdateProductRequestDTO
 from app.common.response import respond
 from app.core import require_admin
-from app.modules.product import product_controller
+from app.core.rate_limit import limiter, RateLimits
+from app.modules.product import product_service  # Import service directly
 
 router = APIRouter()
 
@@ -40,14 +41,17 @@ def optional_cache(expire: int):
 
 
 @router.get("/")
+@limiter.limit(RateLimits.API_READ)
 @optional_cache(expire=60)
 async def get_products(
+    request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     category: str = Query(None),
     search: str = Query(None),
 ):
-    result = await product_controller.list_products(page, limit, category, search)
+    """Get paginated list of products with optional filtering."""
+    result = await product_service.list_products(page, limit, category, search)
     return respond(
         data=result,
         message="Products fetched",
@@ -56,34 +60,45 @@ async def get_products(
 
 
 @router.get("/{product_id}")
+@limiter.limit(RateLimits.API_READ)
 @optional_cache(expire=120)
-async def get_product(product_id: str):
-    product = await product_controller.get_product(product_id)
+async def get_product(request: Request, product_id: str):
+    """Get a single product by ID."""
+    product = await product_service.get_product(product_id)
     return respond(data=product, message="Product fetched")
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
+@limiter.limit(RateLimits.API_WRITE)
 async def create_product(
+    request: Request,
     body: CreateProductRequestDTO,
     admin: dict = Depends(require_admin),
 ):
-    product = await product_controller.create_product(body, admin)
+    """Create a new product (admin only)."""
+    product = await product_service.create_product(body, admin)
     return respond(data=product, message="Product created successfully", status_code=201)
 
 
 @router.patch("/{product_id}")
+@limiter.limit(RateLimits.API_WRITE)
 async def update_product(
+    request: Request,
     product_id: str,
     body: UpdateProductRequestDTO,
     admin: dict = Depends(require_admin),
 ):
-    product = await product_controller.update_product(product_id, body, admin)
+    """Update an existing product (admin only)."""
+    product = await product_service.update_product(product_id, body, admin)
     return respond(data=product, message="Product updated successfully")
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit(RateLimits.API_DELETE)
 async def delete_product(
+    request: Request,
     product_id: str,
     admin: dict = Depends(require_admin),
 ):
-    await product_controller.delete_product(product_id, admin)
+    """Delete a product (admin only)."""
+    await product_service.delete_product(product_id, admin)

@@ -1,4 +1,24 @@
-from app.core.exceptions import OrderValidationError
+from loguru import logger
+
+from app.core.exceptions import (
+    OrderValidationError,
+    NotFoundError,
+    AuthorizationError,
+    DatabaseError,
+)
+from app.modules.order.order_dto import (
+    CreateOrderRequestDTO,
+    OrderResponseDTO,
+    OrderStatusEnum,
+)
+from app.modules.order.order_dco import OrderDCO, OrderItemDCO, ShippingAddressDCO
+from app.modules.order.order_model import (
+    create_order as model_create_order,
+    find_order_by_id,
+    get_orders_by_user,
+    update_order_status as model_update_order_status,
+)
+from app.common.utils import sanitize_text
 
 
 # Valid status transitions map
@@ -65,3 +85,188 @@ def validate_status_transition(current_status: str, new_status: str) -> None:
         raise OrderValidationError(
             f"Cannot transition from {current_status} to {new_status}"
         )
+
+
+# ── Service Layer Functions (Business Logic) ────────────────
+
+
+async def create_order(
+    body: CreateOrderRequestDTO,
+    current_user: dict
+) -> OrderResponseDTO:
+    """
+    Create a new order for the authenticated user.
+
+    Args:
+        body: Order creation data
+        current_user: Current authenticated user
+
+    Returns:
+        Created order details
+
+    Raises:
+        OrderValidationError: If validation fails
+        DatabaseError: If order creation fails
+    """
+    # Validate order data
+    validate_order_items(body.items)
+    validate_shipping_address(body.shipping_address)
+    validate_payment_method(body.payment_method)
+
+    # Calculate and validate total
+    total_amount = calculate_order_total(body.items)
+    validate_order_total(total_amount)
+
+    # Sanitize shipping address inputs
+    sanitized_address = ShippingAddressDCO(
+        full_name=sanitize_text(body.shipping_address.full_name),
+        address_line1=sanitize_text(body.shipping_address.address_line1),
+        address_line2=sanitize_text(body.shipping_address.address_line2) if body.shipping_address.address_line2 else None,
+        city=sanitize_text(body.shipping_address.city),
+        state=sanitize_text(body.shipping_address.state),
+        postal_code=sanitize_text(body.shipping_address.postal_code),
+        country=body.shipping_address.country,
+    )
+
+    # DTO → DCO conversion
+    dco = OrderDCO(
+        user_id=current_user["user_id"],
+        items=[
+            OrderItemDCO(
+                product_id=item.product_id,
+                quantity=item.quantity,
+                price=item.price,
+            )
+            for item in body.items
+        ],
+        shipping_address=sanitized_address,
+        total_amount=total_amount,
+    )
+
+    # Persist to database
+    try:
+        created = model_create_order(dco)
+    except Exception as e:
+        logger.error("Failed to create order | error={}", str(e))
+        raise DatabaseError("create_order", str(e))
+
+    # Fire background tasks (non-blocking, skipped if Celery unavailable)
+    try:
+        from app.modules.order.order_tasks import (
+            send_order_confirmation_email,
+            process_payment
+        )
+        process_payment.delay(created.id, total_amount, body.payment_method)
+        send_order_confirmation_email.delay(current_user["user_id"], created.id)
+    except Exception as e:
+        logger.warning(
+            "Celery not available, background tasks skipped | order_id={} error={}",
+            created.id,
+            str(e)
+        )
+
+    logger.info(
+        "Order created | order_id={} user_id={} total=${:.2f}",
+        created.id,
+        current_user["user_id"],
+        total_amount,
+    )
+
+    return OrderResponseDTO.from_dco(created)
+
+
+async def get_my_orders(current_user: dict) -> list[OrderResponseDTO]:
+    """
+    Get all orders for the current user.
+
+    Args:
+        current_user: Current authenticated user
+
+    Returns:
+        List of user's orders
+    """
+    orders = get_orders_by_user(current_user["user_id"])
+    return [OrderResponseDTO.from_dco(o) for o in orders]
+
+
+async def get_order(order_id: str, current_user: dict) -> OrderResponseDTO:
+    """
+    Get a specific order by ID.
+
+    Users can only access their own orders unless they're admin.
+
+    Args:
+        order_id: The order ID to retrieve
+        current_user: Current authenticated user
+
+    Returns:
+        Order details
+
+    Raises:
+        NotFoundError: If order doesn't exist
+        AuthorizationError: If user doesn't have access to this order
+    """
+    order = find_order_by_id(order_id)
+    if not order:
+        raise NotFoundError("order", order_id)
+
+    # Authorization: Users can only see their own orders; admins can see all
+    if current_user["role"] != "admin" and order.user_id != current_user["user_id"]:
+        raise AuthorizationError(
+            "You can only view your own orders",
+            required_role="admin"
+        )
+
+    return OrderResponseDTO.from_dco(order)
+
+
+async def update_order_status(
+    order_id: str,
+    new_status: OrderStatusEnum,
+    admin_user: dict
+) -> OrderResponseDTO:
+    """
+    Update order status (admin only).
+
+    Args:
+        order_id: ID of order to update
+        new_status: New status to set
+        admin_user: Admin user updating the status
+
+    Returns:
+        Updated order details
+
+    Raises:
+        NotFoundError: If order doesn't exist
+        OrderValidationError: If status transition is invalid
+        DatabaseError: If update fails
+    """
+    try:
+        # Find existing order
+        order = find_order_by_id(order_id)
+        if not order:
+            raise NotFoundError("order", order_id)
+
+        # Validate status transition
+        validate_status_transition(order.status, new_status.value)
+
+        # Update in database
+        updated_order = model_update_order_status(order_id, new_status.value)
+        if not updated_order:
+            raise DatabaseError("update_order_status", "Failed to update order status")
+
+    except (NotFoundError, OrderValidationError, DatabaseError):
+        raise
+    except Exception as e:
+        logger.error("Failed to update order status | error={}", str(e))
+        raise DatabaseError("update_order_status", str(e))
+
+    logger.info(
+        "Order status updated | order_id={} old_status={} new_status={} by admin={}",
+        order_id,
+        order.status,
+        new_status.value,
+        admin_user["user_id"]
+    )
+
+    return OrderResponseDTO.from_dco(updated_order)

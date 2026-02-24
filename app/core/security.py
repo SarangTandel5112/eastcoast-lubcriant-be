@@ -5,8 +5,10 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from loguru import logger
 
 from app.core.config import settings
+from app.core.token_blacklist import is_token_blacklisted, are_user_tokens_revoked
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -26,17 +28,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
-    )
-    to_encode.update({"exp": expire, "type": "access"})
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    to_encode.update({
+        "exp": expire,
+        "iat": now,  # Issued at timestamp (for revocation checking)
+        "type": "access"
+    })
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
-    to_encode.update({"exp": expire, "type": "refresh"})
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=settings.refresh_token_expire_days)
+    to_encode.update({
+        "exp": expire,
+        "iat": now,  # Issued at timestamp (for revocation checking)
+        "type": "refresh"
+    })
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
@@ -55,10 +65,35 @@ def decode_token(token: str) -> dict:
 # ── Dependencies (attach to protected routes) ─────────────
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    # Check if token is blacklisted (revoked)
+    if is_token_blacklisted(token):
+        logger.warning("Attempted to use blacklisted token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     payload = decode_token(token)
     user_id: str = payload.get("sub")
+    token_issued_at: float = payload.get("iat")
+
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload"
+        )
+
+    # Check if all tokens for this user have been revoked
+    # (e.g., after password change)
+    if are_user_tokens_revoked(user_id, token_issued_at):
+        logger.warning("Attempted to use revoked user token | user_id={}", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="All sessions have been terminated. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return {"user_id": user_id, "role": payload.get("role", "customer")}
 
 
