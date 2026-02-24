@@ -1,0 +1,1 @@
+from .product_variants_entity import ProductVariant
