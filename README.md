@@ -15,19 +15,22 @@ app/
 │   │   ├── auth_route.py            # /api/v1/auth/* endpoints
 │   │   ├── auth_controller.py       # Thin orchestration layer
 │   │   ├── auth_service.py          # Business logic
-│   │   ├── auth_schema.py           # Pydantic request/response models
+│   │   ├── auth_dto.py              # Pydantic request/response DTOs
+│   │   ├── auth_dco.py              # Domain Class Object (UserDCO)
 │   │   └── auth_model.py            # Data access (user CRUD)
 │   ├── product/
 │   │   ├── product_route.py         # /api/v1/products/* endpoints
 │   │   ├── product_controller.py    # Thin orchestration layer
 │   │   ├── product_service.py       # Validation + pagination logic
-│   │   ├── product_schema.py        # Pydantic request/response models
+│   │   ├── product_dto.py           # Pydantic request/response DTOs
+│   │   ├── product_dco.py           # Domain Class Object (ProductDCO)
 │   │   └── product_model.py         # Data access (product CRUD)
 │   └── order/
 │       ├── order_route.py           # /api/v1/orders/* endpoints
 │       ├── order_controller.py      # Thin orchestration layer
 │       ├── order_service.py         # Validation + calculation logic
-│       ├── order_schema.py          # Pydantic request/response models
+│       ├── order_dto.py             # Pydantic request/response DTOs
+│       ├── order_dco.py             # Domain Class Objects (Order/Item/Address)
 │       ├── order_model.py           # Data access (order CRUD)
 │       └── order_tasks.py           # Celery tasks (email + payment)
 ├── core/                            # Shared config, security, logging
@@ -35,7 +38,9 @@ app/
 │   ├── security.py                  # JWT + bcrypt + auth dependencies
 │   ├── logging.py                   # Loguru setup (console + file + JSON)
 │   └── exceptions.py                # Custom exception classes
-├── common/                          # Shared schemas + services
+├── common/                          # Shared utilities + services
+│   ├── response.py                  # respond() / error_respond() wrappers
+│   ├── base_dco.py                  # Base DCO dataclass (id, created_at)
 │   ├── schemas/errors.py            # Error response Pydantic models
 │   └── services/http_client.py      # Reusable async HTTP client (httpx)
 ├── middleware/                      # Request context + error handling
@@ -47,9 +52,10 @@ app/
 
 > **Barrel exports:** Each module uses `__init__.py` barrel re-exports. Import from the module directly:
 > ```python
-> from app.modules.auth import RegisterSchema, LoginSchema
-> from app.modules.product import CreateProductSchema, ProductResponseSchema
+> from app.modules.auth import RegisterRequestDTO, UserDCO
+> from app.modules.product import CreateProductRequestDTO, ProductDCO
 > from app.core import settings, get_current_user
+> from app.common import respond, error_respond
 > ```
 
 ---
@@ -397,13 +403,14 @@ xcode-select --install
 Follow this pattern when adding a new module (e.g., Reviews):
 
 1. **Create module folder** → `app/modules/review/`
-2. **Schema** → Create `review_schema.py` with Pydantic models
-3. **Model** → Create `review_model.py` with data access functions
-4. **Service** → Create `review_service.py` with pure business logic (validation, calculations)
-5. **Controller** → Create `review_controller.py` — thin orchestration that calls service + model
-6. **Route** → Create `review_route.py` with thin route handlers
-7. **Init** → Create `__init__.py` with barrel exports
-8. **Register** → Add to `app/api/v1/router.py`:
+2. **DCO** → Create `review_dco.py` with a `@dataclass` domain object (extends `BaseDCO`)
+3. **DTO** → Create `review_dto.py` with Pydantic request/response DTOs
+4. **Model** → Create `review_model.py` — accepts/returns DCOs
+5. **Service** → Create `review_service.py` with pure business logic (validation, calculations)
+6. **Controller** → Create `review_controller.py` — bridges DTO↔DCO, calls service + model
+7. **Route** → Create `review_route.py` — thin handlers that use `respond()` wrapper
+8. **Init** → Create `__init__.py` with barrel exports
+9. **Register** → Add to `app/api/v1/router.py`:
    ```python
    from app.modules.review.review_route import router as review_router
    router.include_router(review_router, prefix="/reviews", tags=["Reviews"])
