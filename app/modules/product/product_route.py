@@ -1,10 +1,11 @@
 from fastapi import APIRouter, status, Depends, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.product.product_dto import CreateProductRequestDTO, UpdateProductRequestDTO
 from app.common.response import respond
-from app.core import require_admin
+from app.core import require_admin, get_db_session
 from app.core.rate_limit import limiter, RateLimits
-from app.modules.product import product_service  # Import service directly
+from app.modules.product import product_service
 
 router = APIRouter()
 
@@ -22,14 +23,11 @@ def optional_cache(expire: int):
 
             async def wrapper(*args, **kwargs):
                 try:
-                    # Check if FastAPICache backend is initialized
                     FastAPICache.get_backend()
                     return await cached_func(*args, **kwargs)
                 except AssertionError:
-                    # Cache not initialized, skip caching
                     return await func(*args, **kwargs)
 
-            # Preserve function metadata for FastAPI
             wrapper.__name__ = func.__name__
             wrapper.__doc__ = func.__doc__
             import functools
@@ -49,9 +47,10 @@ async def get_products(
     limit: int = Query(20, ge=1, le=100),
     category: str = Query(None),
     search: str = Query(None),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Get paginated list of products with optional filtering."""
-    result = await product_service.list_products(page, limit, category, search)
+    result = await product_service.list_products(db, page, limit, category, search)
     return respond(
         data=result,
         message="Products fetched",
@@ -62,9 +61,13 @@ async def get_products(
 @router.get("/{product_id}")
 @limiter.limit(RateLimits.API_READ)
 @optional_cache(expire=120)
-async def get_product(request: Request, product_id: str):
+async def get_product(
+    request: Request,
+    product_id: str,
+    db: AsyncSession = Depends(get_db_session),
+):
     """Get a single product by ID."""
-    product = await product_service.get_product(product_id)
+    product = await product_service.get_product(db, product_id)
     return respond(data=product, message="Product fetched")
 
 
@@ -74,9 +77,10 @@ async def create_product(
     request: Request,
     body: CreateProductRequestDTO,
     admin: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Create a new product (admin only)."""
-    product = await product_service.create_product(body, admin)
+    product = await product_service.create_product(db, body, admin)
     return respond(data=product, message="Product created successfully", status_code=201)
 
 
@@ -87,9 +91,10 @@ async def update_product(
     product_id: str,
     body: UpdateProductRequestDTO,
     admin: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Update an existing product (admin only)."""
-    product = await product_service.update_product(product_id, body, admin)
+    product = await product_service.update_product(db, product_id, body, admin)
     return respond(data=product, message="Product updated successfully")
 
 
@@ -99,6 +104,7 @@ async def delete_product(
     request: Request,
     product_id: str,
     admin: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Delete a product (admin only)."""
-    await product_service.delete_product(product_id, admin)
+    await product_service.delete_product(db, product_id, admin)

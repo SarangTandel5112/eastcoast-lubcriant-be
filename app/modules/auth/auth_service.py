@@ -1,4 +1,5 @@
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.auth_dto import (
     RegisterRequestDTO, LoginRequestDTO, RefreshTokenRequestDTO,
@@ -18,8 +19,8 @@ from app.core.exceptions import (
 from app.modules.auth.auth_model import create_user, find_user_by_email, find_user_by_id
 
 
-async def register_user(body: RegisterRequestDTO) -> UserResponseDTO:
-    if find_user_by_email(body.email):
+async def register_user(session: AsyncSession, body: RegisterRequestDTO) -> UserResponseDTO:
+    if await find_user_by_email(session, body.email):
         raise ConflictError(
             message="Email already registered",
             resource="user",
@@ -30,14 +31,14 @@ async def register_user(body: RegisterRequestDTO) -> UserResponseDTO:
 
     # DTO → DCO
     dco = UserDCO(name=body.name, email=body.email, password=hashed)
-    created = create_user(dco)
+    created = await create_user(session, dco)
 
     logger.info("New user registered | user_id={} email={}", created.id, body.email)
     return UserResponseDTO.from_dco(created)
 
 
-async def login_user(body: LoginRequestDTO) -> TokenResponseDTO:
-    user = find_user_by_email(body.email)
+async def login_user(session: AsyncSession, body: LoginRequestDTO) -> TokenResponseDTO:
+    user = await find_user_by_email(session, body.email)
     if not user or not verify_password(body.password, user.password):
         raise AuthenticationError("Invalid email or password")
 
@@ -65,8 +66,8 @@ async def refresh_user_token(body: RefreshTokenRequestDTO) -> TokenResponseDTO:
     )
 
 
-async def get_user_profile(user_id: str) -> UserResponseDTO:
-    user = find_user_by_id(user_id)
+async def get_user_profile(session: AsyncSession, user_id: str) -> UserResponseDTO:
+    user = await find_user_by_id(session, user_id)
     if not user:
         raise NotFoundError("user", user_id)
 

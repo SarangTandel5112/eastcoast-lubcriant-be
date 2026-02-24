@@ -1,4 +1,5 @@
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.order.order_dto import CreateOrderRequestDTO, OrderResponseDTO, OrderStatusEnum
 from app.modules.order.order_dco import OrderDCO, OrderItemDCO, ShippingAddressDCO
@@ -21,11 +22,11 @@ from app.modules.order.order_service import (
     calculate_order_total,
     validate_status_transition,
 )
-from app.modules.order.order_tasks import send_order_confirmation_email, process_payment
 
 
-async def create_order(body: CreateOrderRequestDTO, current_user: dict) -> OrderResponseDTO:
-    # Validate order data
+async def create_order(
+    session: AsyncSession, body: CreateOrderRequestDTO, current_user: dict
+) -> OrderResponseDTO:
     validate_order_items(body.items)
     validate_shipping_address(body.shipping_address)
     validate_payment_method(body.payment_method)
@@ -33,7 +34,6 @@ async def create_order(body: CreateOrderRequestDTO, current_user: dict) -> Order
     total_amount = calculate_order_total(body.items)
     validate_order_total(total_amount)
 
-    # DTO → DCO conversion
     dco = OrderDCO(
         user_id=current_user["user_id"],
         items=[
@@ -57,12 +57,12 @@ async def create_order(body: CreateOrderRequestDTO, current_user: dict) -> Order
     )
 
     try:
-        created = model_create_order(dco)
+        created = await model_create_order(session, dco)
     except Exception as e:
         raise DatabaseError("create_order", str(e))
 
-    # ── Fire background tasks (non-blocking, skipped if Redis/Celery unavailable)
     try:
+        from app.modules.order.order_tasks import send_order_confirmation_email, process_payment
         process_payment.delay(created.id, total_amount, body.payment_method)
         send_order_confirmation_email.delay(current_user["user_id"], created.id)
     except Exception:
@@ -75,17 +75,18 @@ async def create_order(body: CreateOrderRequestDTO, current_user: dict) -> Order
     return OrderResponseDTO.from_dco(created)
 
 
-async def get_my_orders(current_user: dict) -> list[OrderResponseDTO]:
-    orders = get_orders_by_user(current_user["user_id"])
+async def get_my_orders(session: AsyncSession, current_user: dict) -> list[OrderResponseDTO]:
+    orders = await get_orders_by_user(session, current_user["user_id"])
     return [OrderResponseDTO.from_dco(o) for o in orders]
 
 
-async def get_order(order_id: str, current_user: dict) -> OrderResponseDTO:
-    order = find_order_by_id(order_id)
+async def get_order(
+    session: AsyncSession, order_id: str, current_user: dict
+) -> OrderResponseDTO:
+    order = await find_order_by_id(session, order_id)
     if not order:
         raise NotFoundError("order", order_id)
 
-    # Users can only see their own orders; admins can see all
     if current_user["role"] != "admin" and order.user_id != current_user["user_id"]:
         raise AuthorizationError(
             "Access denied",
@@ -96,16 +97,16 @@ async def get_order(order_id: str, current_user: dict) -> OrderResponseDTO:
 
 
 async def update_order_status(
-    order_id: str, new_status: OrderStatusEnum
+    session: AsyncSession, order_id: str, new_status: OrderStatusEnum
 ) -> OrderResponseDTO:
     try:
-        order = find_order_by_id(order_id)
+        order = await find_order_by_id(session, order_id)
         if not order:
             raise NotFoundError("order", order_id)
 
         validate_status_transition(order.status, new_status.value)
 
-        updated_order = model_update_order_status(order_id, new_status.value)
+        updated_order = await model_update_order_status(session, order_id, new_status.value)
         if not updated_order:
             raise DatabaseError("update_order_status", "Failed to update order status")
 

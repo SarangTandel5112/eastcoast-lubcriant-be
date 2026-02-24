@@ -1,4 +1,5 @@
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     NotFoundError,
@@ -63,68 +64,32 @@ def paginate_products(products: list[ProductDCO], page: int, limit: int) -> Prod
 
 
 async def list_products(
-    page: int, limit: int, category: str = None, search: str = None
+    session: AsyncSession, page: int, limit: int, category: str = None, search: str = None
 ) -> ProductListResponseDTO:
-    """
-    Get paginated list of products with optional filtering.
-
-    Args:
-        page: Page number (1-indexed)
-        limit: Number of items per page
-        category: Optional category filter
-        search: Optional search query
-
-    Returns:
-        Paginated product list
-    """
-    products = get_all_products(category=category, search=search)
+    """Get paginated list of products with optional filtering."""
+    products = await get_all_products(session, category=category, search=search)
     return paginate_products(products, page, limit)
 
 
-async def get_product(product_id: str) -> ProductResponseDTO:
-    """
-    Get a single product by ID.
-
-    Args:
-        product_id: The product ID to retrieve
-
-    Returns:
-        Product details
-
-    Raises:
-        NotFoundError: If product doesn't exist
-    """
-    dco = find_product_by_id(product_id)
+async def get_product(session: AsyncSession, product_id: str) -> ProductResponseDTO:
+    """Get a single product by ID."""
+    dco = await find_product_by_id(session, product_id)
     if not dco:
         raise NotFoundError("product", product_id)
     return ProductResponseDTO.from_dco(dco)
 
 
 async def create_product(
+    session: AsyncSession,
     body: CreateProductRequestDTO,
     admin_user: dict
 ) -> ProductResponseDTO:
-    """
-    Create a new product (admin only).
-
-    Args:
-        body: Product creation data
-        admin_user: Admin user creating the product
-
-    Returns:
-        Created product details
-
-    Raises:
-        ProductValidationError: If validation fails
-    """
-    # Validate product data
+    """Create a new product (admin only)."""
     validate_create_product(body)
 
-    # Sanitize user input to prevent XSS
     sanitized_name = sanitize_text(body.name)
-    sanitized_description = sanitize_html(body.description)  # Allow basic HTML
+    sanitized_description = sanitize_html(body.description)
 
-    # DTO → DCO conversion
     dco = ProductDCO(
         name=sanitized_name,
         description=sanitized_description,
@@ -136,8 +101,7 @@ async def create_product(
         created_by=admin_user["user_id"],
     )
 
-    # Persist to database
-    created = model_create_product(dco)
+    created = await model_create_product(session, dco)
 
     logger.info(
         "Product created | product_id={} by admin={}",
@@ -149,32 +113,16 @@ async def create_product(
 
 
 async def update_product(
+    session: AsyncSession,
     product_id: str,
     body: UpdateProductRequestDTO,
     admin_user: dict
 ) -> ProductResponseDTO:
-    """
-    Update an existing product (admin only).
-
-    Args:
-        product_id: ID of product to update
-        body: Product update data
-        admin_user: Admin user updating the product
-
-    Returns:
-        Updated product details
-
-    Raises:
-        NotFoundError: If product doesn't exist
-        ProductValidationError: If validation fails
-    """
-    # Validate update data
+    """Update an existing product (admin only)."""
     validate_update_product(body)
 
-    # Prepare update data
     update_data = body.model_dump(exclude_none=True)
 
-    # Sanitize text fields if present
     if "name" in update_data:
         update_data["name"] = sanitize_text(update_data["name"])
 
@@ -184,12 +132,10 @@ async def update_product(
     if "tags" in update_data:
         update_data["tags"] = [sanitize_text(tag) for tag in update_data["tags"]]
 
-    # Convert category enum to string value if present
     if "category" in update_data and update_data["category"] is not None:
         update_data["category"] = update_data["category"].value
 
-    # Update in database
-    updated = model_update_product(product_id, update_data)
+    updated = await model_update_product(session, product_id, update_data)
     if not updated:
         raise NotFoundError("product", product_id)
 
@@ -202,18 +148,9 @@ async def update_product(
     return ProductResponseDTO.from_dco(updated)
 
 
-async def delete_product(product_id: str, admin_user: dict) -> None:
-    """
-    Delete a product (admin only).
-
-    Args:
-        product_id: ID of product to delete
-        admin_user: Admin user deleting the product
-
-    Raises:
-        NotFoundError: If product doesn't exist
-    """
-    if not model_delete_product(product_id):
+async def delete_product(session: AsyncSession, product_id: str, admin_user: dict) -> None:
+    """Delete a product (admin only)."""
+    if not await model_delete_product(session, product_id):
         raise NotFoundError("product", product_id)
 
     logger.info(

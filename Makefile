@@ -1,4 +1,4 @@
-.PHONY: dev start worker lint format install security pre-commit-setup quality-check clean
+.PHONY: dev start worker lint format install security pre-commit-setup quality-check clean db-migrate db-upgrade db-downgrade db-history
 
 # ── Development ──────────────────────────────────────────
 dev:
@@ -43,3 +43,15 @@ clean:
 	find . -type f -name "*.pyc" -delete
 	rm -rf .ruff_cache .mypy_cache .pytest_cache
 
+# ── Database Migrations (Alembic) ───────────────────────────
+db-migrate: ## Generate a new migration  (usage: make db-migrate msg="add users table")
+	./venv/bin/python -m alembic revision --autogenerate -m "$(msg)"
+
+db-upgrade: ## Apply all pending migrations
+	./venv/bin/python -m alembic upgrade head
+
+db-downgrade: ## Rollback the last migration
+	./venv/bin/python -m alembic downgrade -1
+
+db-history: ## Show migration history
+	./venv/bin/python -m alembic history --verbose
