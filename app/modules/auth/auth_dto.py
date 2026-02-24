@@ -1,64 +1,79 @@
 """Auth DTOs — request & response Pydantic models for the Auth API."""
 
-from pydantic import BaseModel, EmailStr, Field, validator
+from enum import Enum
 import re
 
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
 from app.modules.auth.auth_dco import UserDCO
+
+
+class UserRole(str, Enum):
+    ADMIN = "ADMIN"
+    DEALER = "DEALER"
 
 
 # ── Request DTOs ─────────────────────────────────────────────
 
 class RegisterRequestDTO(BaseModel):
-    """DTO for user registration."""
-    name: str = Field(..., min_length=2, max_length=100)
+    """Public registration DTO (default role: DEALER)."""
+
+    business_name: str = Field(..., min_length=2, max_length=150)
     email: EmailStr
     password: str = Field(
         ...,
         min_length=12,
         max_length=128,
-        description="Password must be 12-128 characters with uppercase, lowercase, digit, and special character"
+        description=(
+            "Password must be 12-128 characters with uppercase, lowercase, "
+            "digit, and special character"
+        ),
     )
+    province: str = Field(..., min_length=2, max_length=100)
+    contact_name: str | None = Field(default=None, min_length=2, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
 
-    @validator("name")
-    def validate_name(cls, v):
-        """Validate name has no leading/trailing spaces and valid characters."""
-        if v.strip() != v:
-            raise ValueError("Name cannot have leading or trailing spaces")
+    @field_validator("business_name", "province", "contact_name")
+    @classmethod
+    def validate_text_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
 
-        # Check for suspicious characters (basic XSS prevention)
-        if any(char in v for char in ["<", ">", "&", '"', "'"]):
-            raise ValueError("Name contains invalid characters")
+        stripped = value.strip()
+        if stripped != value:
+            raise ValueError("Value cannot have leading or trailing spaces")
 
-        return v.strip()
+        if any(char in stripped for char in ["<", ">", "&", '"', "'"]):
+            raise ValueError("Value contains invalid characters")
 
-    @validator("password")
-    def validate_password_strength(cls, v):
-        """Enforce strong password policy."""
-        if len(v) < 12:
-            raise ValueError("Password must be at least 12 characters long")
+        return stripped
 
-        if len(v) > 128:
-            raise ValueError("Password must not exceed 128 characters")
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
 
-        # Check for required character types
+        stripped = value.strip()
+        if not re.fullmatch(r"^[+]?[-()\d\s]{7,30}$", stripped):
+            raise ValueError("Phone must contain only digits, spaces, +, -, and parentheses")
+
+        return stripped
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
         checks = [
             (r"[A-Z]", "at least one uppercase letter"),
             (r"[a-z]", "at least one lowercase letter"),
             (r"\d", "at least one digit"),
-            (r"[!@#$%^&*(),.?\":{}|<>_\-+=\[\]\\\/`~;']", "at least one special character"),
+            (r"[!@#$%^&*(),.?\":{}|<>_\-+=\[\]\\/`~;']", "at least one special character"),
         ]
 
-        missing_requirements = []
-        for pattern, requirement in checks:
-            if not re.search(pattern, v):
-                missing_requirements.append(requirement)
-
+        missing_requirements = [requirement for pattern, requirement in checks if not re.search(pattern, value)]
         if missing_requirements:
-            raise ValueError(
-                f"Password must contain: {', '.join(missing_requirements)}"
-            )
+            raise ValueError(f"Password must contain: {', '.join(missing_requirements)}")
 
-        # Check against common weak passwords
         common_passwords = {
             "password123!",
             "password1234",
@@ -70,31 +85,141 @@ class RegisterRequestDTO(BaseModel):
             "passw0rd!@#",
         }
 
-        if v.lower() in common_passwords:
+        if value.lower() in common_passwords:
             raise ValueError("Password is too common, please choose a stronger password")
 
-        # Check for sequential characters (like "12345" or "abcde")
-        if any(v.lower()[i:i+4] in "0123456789abcdefghijklmnopqrstuvwxyz" for i in range(len(v)-3)):
-            raise ValueError("Password contains sequential characters, please use a more complex password")
+        return value
 
-        return v
+
+class AdminCreateUserRequestDTO(RegisterRequestDTO):
+    """Admin-only user creation DTO."""
+
+    role: UserRole = UserRole.DEALER
+    is_active: bool = True
 
 
 class LoginRequestDTO(BaseModel):
     """DTO for user login."""
-    email: EmailStr
+
+    email: EmailStr | None = None
+    phone: str | None = None
+    identifier: str | None = None
     password: str
+
+    @field_validator("phone")
+    @classmethod
+    def validate_login_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        stripped = value.strip()
+        if not re.fullmatch(r"^[+]?[-()\d\s]{7,30}$", stripped):
+            raise ValueError("Phone must contain only digits, spaces, +, -, and parentheses")
+        return stripped
+
+    @field_validator("identifier")
+    @classmethod
+    def validate_identifier(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("identifier cannot be empty")
+        return stripped
+
+    @model_validator(mode="after")
+    def validate_login_identifier(self):
+        if not self.email and not self.phone and not self.identifier:
+            raise ValueError("Provide either email, phone, or identifier (email/phone)")
+        return self
 
 
 class RefreshTokenRequestDTO(BaseModel):
     """DTO for refreshing a JWT token pair."""
+
     refresh_token: str
+
+
+class UpdateMyProfileRequestDTO(BaseModel):
+    """Self-service profile updates for authenticated users."""
+
+    business_name: str | None = Field(default=None, min_length=2, max_length=150)
+    province: str | None = Field(default=None, min_length=2, max_length=100)
+    contact_name: str | None = Field(default=None, min_length=2, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+
+    @field_validator("business_name", "province", "contact_name")
+    @classmethod
+    def validate_optional_text_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        stripped = value.strip()
+        if stripped != value:
+            raise ValueError("Value cannot have leading or trailing spaces")
+
+        if any(char in stripped for char in ["<", ">", "&", '"', "'"]):
+            raise ValueError("Value contains invalid characters")
+
+        return stripped
+
+    @field_validator("phone")
+    @classmethod
+    def validate_optional_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        stripped = value.strip()
+        if not re.fullmatch(r"^[+]?[-()\d\s]{7,30}$", stripped):
+            raise ValueError("Phone must contain only digits, spaces, +, -, and parentheses")
+
+        return stripped
+
+
+class AdminUpdateUserRequestDTO(BaseModel):
+    """Admin-only user updates."""
+
+    role: UserRole | None = None
+    is_active: bool | None = None
+    business_name: str | None = Field(default=None, min_length=2, max_length=150)
+    province: str | None = Field(default=None, min_length=2, max_length=100)
+    contact_name: str | None = Field(default=None, min_length=2, max_length=100)
+    phone: str | None = Field(default=None, max_length=30)
+    password: str | None = Field(default=None, min_length=12, max_length=128)
+
+    @field_validator("business_name", "province", "contact_name")
+    @classmethod
+    def validate_admin_optional_text_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        stripped = value.strip()
+        if stripped != value:
+            raise ValueError("Value cannot have leading or trailing spaces")
+
+        if any(char in stripped for char in ["<", ">", "&", '"', "'"]):
+            raise ValueError("Value contains invalid characters")
+
+        return stripped
+
+    @field_validator("phone")
+    @classmethod
+    def validate_admin_optional_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        stripped = value.strip()
+        if not re.fullmatch(r"^[+]?[-()\d\s]{7,30}$", stripped):
+            raise ValueError("Phone must contain only digits, spaces, +, -, and parentheses")
+
+        return stripped
 
 
 # ── Response DTOs ────────────────────────────────────────────
 
 class TokenResponseDTO(BaseModel):
     """DTO for JWT token response."""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -102,17 +227,34 @@ class TokenResponseDTO(BaseModel):
 
 class UserResponseDTO(BaseModel):
     """DTO returned for user profile information."""
+
     id: str
-    name: str
+    role: str
+    business_name: str
     email: str
-    role: str = "customer"
+    province: str
+    contact_name: str | None = None
+    phone: str | None = None
+    is_active: bool
+    last_login_at: str | None = None
+    created_at: str
+    updated_at: str
+    deleted_at: str | None = None
 
     @classmethod
     def from_dco(cls, dco: UserDCO) -> "UserResponseDTO":
         """Build a response DTO from a user DCO."""
         return cls(
             id=dco.id,
-            name=dco.name,
-            email=dco.email,
             role=dco.role,
+            business_name=dco.business_name,
+            email=dco.email,
+            province=dco.province,
+            contact_name=dco.contact_name,
+            phone=dco.phone,
+            is_active=dco.is_active,
+            last_login_at=dco.last_login_at,
+            created_at=dco.created_at,
+            updated_at=dco.updated_at,
+            deleted_at=dco.deleted_at,
         )

@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+    access_token_cookie_name: str = "access_token"
+    refresh_token_cookie_name: str = "refresh_token"
+    cookie_secure: bool = False
+    cookie_samesite: str = "lax"  # lax | strict | none
+    cookie_domain: str = ""
 
     # Redis
     redis_url: str = ""  # leave empty to disable Redis (caching + Celery)
@@ -100,6 +105,15 @@ class Settings(BaseSettings):
             )
 
         return v
+
+    @validator("cookie_samesite")
+    def validate_cookie_samesite(cls, v):
+        """Ensure SameSite value is valid for Set-Cookie."""
+        valid_values = {"lax", "strict", "none"}
+        value = v.lower()
+        if value not in valid_values:
+            raise ValueError("COOKIE_SAMESITE must be one of: lax, strict, none")
+        return value
 
     class Config:
         env_file = ".env"

@@ -87,10 +87,11 @@ async def get_order(
     if not order:
         raise NotFoundError("order", order_id)
 
-    if current_user["role"] != "admin" and order.user_id != current_user["user_id"]:
+    # Users can only see their own orders; admins can see all
+    if current_user["role"] != "ADMIN" and order.user_id != current_user["user_id"]:
         raise AuthorizationError(
             "Access denied",
-            required_role="admin"
+            required_role="ADMIN"
         )
 
     return OrderResponseDTO.from_dco(order)
