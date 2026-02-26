@@ -3,17 +3,15 @@
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class TaxRuleDCO(BaseModel):
+class TaxRuleDCO(BaseSchema):
     province: str
     gst_rate: Decimal
     pst_rate: Optional[Decimal] = None
     hst_rate: Optional[Decimal] = None
 
-
-class TaxRuleUpdateDCO(BaseModel):
+class TaxRuleUpdateDCO(BaseSchema):
     province: Optional[str] = None
     gst_rate: Optional[Decimal] = None
     pst_rate: Optional[Decimal] = None

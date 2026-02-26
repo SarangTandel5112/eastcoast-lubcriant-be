@@ -4,13 +4,10 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
+from app.common.schemas.base import BaseSchema
 from app.modules.inventory_movements.inventory_movements_entity import MovementTypeEnum
 
-
-class InventoryMovementDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class InventoryMovementDTO(BaseSchema):
 
     id: UUID
     variant_id: UUID

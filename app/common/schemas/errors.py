@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from app.common.schemas.base import BaseSchema
 
 
-class ErrorDetail(BaseModel):
+class ErrorDetail(BaseSchema):
     """Detailed error information for specific fields."""
     field: Optional[str] = Field(None, description="Field name where error occurred")
     message: str = Field(..., description="Error message")
@@ -12,7 +13,7 @@ class ErrorDetail(BaseModel):
     value: Optional[Any] = Field(None, description="The invalid value that caused the error")
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(BaseSchema):
     """Standard error response format."""
     error: bool = Field(True, description="Indicates this is an error response")
     message: str = Field(..., description="Human-readable error message")
@@ -41,7 +42,7 @@ class ExternalServiceErrorResponse(ErrorResponse):
 
 
 # Success response schemas for consistency
-class SuccessResponse(BaseModel):
+class SuccessResponse(BaseSchema):
     """Standard success response wrapper."""
     success: bool = Field(True, description="Indicates this is a success response")
     message: Optional[str] = Field(None, description="Optional success message")
@@ -50,7 +51,7 @@ class SuccessResponse(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="When the response was generated")
 
 
-class PaginatedResponse(BaseModel):
+class PaginatedResponse(BaseSchema):
     """Standard paginated response format."""
     items: List[Any] = Field(..., description="List of items")
     total: int = Field(..., description="Total number of items")

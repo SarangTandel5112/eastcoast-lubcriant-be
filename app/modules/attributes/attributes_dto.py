@@ -4,13 +4,10 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
+from app.common.schemas.base import BaseSchema
 from app.modules.attributes.attributes_entity import DataTypeEnum
 
-
-class AttributeDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class AttributeDTO(BaseSchema):
 
     id: UUID
     name: str

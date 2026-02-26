@@ -4,11 +4,9 @@ from uuid import UUID
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from app.common.schemas.base import BaseSchema
 
-
-class OrderItemDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class OrderItemDTO(BaseSchema):
 
     id: UUID
     order_id: UUID

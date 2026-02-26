@@ -3,19 +3,18 @@
 from enum import Enum
 import re
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import EmailStr, Field, field_validator, model_validator
 
+from app.common.schemas.base import BaseSchema
 from app.modules.auth.auth_dco import UserDCO
-
 
 class UserRole(str, Enum):
     ADMIN = "ADMIN"
     DEALER = "DEALER"
 
-
 # ── Request DTOs ─────────────────────────────────────────────
 
-class RegisterRequestDTO(BaseModel):
+class RegisterRequestDTO(BaseSchema):
     """Public registration DTO (default role: DEALER)."""
 
     business_name: str = Field(..., min_length=2, max_length=150)
@@ -90,15 +89,13 @@ class RegisterRequestDTO(BaseModel):
 
         return value
 
-
 class AdminCreateUserRequestDTO(RegisterRequestDTO):
     """Admin-only user creation DTO."""
 
     role: UserRole = UserRole.DEALER
     is_active: bool = True
 
-
-class LoginRequestDTO(BaseModel):
+class LoginRequestDTO(BaseSchema):
     """DTO for user login."""
 
     email: EmailStr | None = None
@@ -133,14 +130,12 @@ class LoginRequestDTO(BaseModel):
             raise ValueError("Provide either email, phone, or identifier (email/phone)")
         return self
 
-
-class RefreshTokenRequestDTO(BaseModel):
+class RefreshTokenRequestDTO(BaseSchema):
     """DTO for refreshing a JWT token pair."""
 
     refresh_token: str
 
-
-class UpdateMyProfileRequestDTO(BaseModel):
+class UpdateMyProfileRequestDTO(BaseSchema):
     """Self-service profile updates for authenticated users."""
 
     business_name: str | None = Field(default=None, min_length=2, max_length=150)
@@ -175,8 +170,7 @@ class UpdateMyProfileRequestDTO(BaseModel):
 
         return stripped
 
-
-class AdminUpdateUserRequestDTO(BaseModel):
+class AdminUpdateUserRequestDTO(BaseSchema):
     """Admin-only user updates."""
 
     role: UserRole | None = None
@@ -214,18 +208,16 @@ class AdminUpdateUserRequestDTO(BaseModel):
 
         return stripped
 
-
 # ── Response DTOs ────────────────────────────────────────────
 
-class TokenResponseDTO(BaseModel):
+class TokenResponseDTO(BaseSchema):
     """DTO for JWT token response."""
 
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
-
-class UserResponseDTO(BaseModel):
+class UserResponseDTO(BaseSchema):
     """DTO returned for user profile information."""
 
     id: str

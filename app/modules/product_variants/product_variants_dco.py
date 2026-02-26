@@ -4,10 +4,9 @@ from uuid import UUID
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class ProductVariantDCO(BaseModel):
+class ProductVariantDCO(BaseSchema):
     product_id: UUID
     sku: str
     price: Decimal
@@ -18,8 +17,7 @@ class ProductVariantDCO(BaseModel):
     weight_kg: Optional[Decimal] = None
     is_active: bool = True
 
-
-class ProductVariantUpdateDCO(BaseModel):
+class ProductVariantUpdateDCO(BaseSchema):
     product_id: Optional[UUID] = None
     sku: Optional[str] = None
     price: Optional[Decimal] = None

@@ -3,14 +3,12 @@
 from uuid import UUID
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class ProductApplicationDCO(BaseModel):
+class ProductApplicationDCO(BaseSchema):
     product_id: UUID
     application_id: UUID
 
-
-class ProductApplicationUpdateDCO(BaseModel):
+class ProductApplicationUpdateDCO(BaseSchema):
     product_id: Optional[UUID] = None
     application_id: Optional[UUID] = None

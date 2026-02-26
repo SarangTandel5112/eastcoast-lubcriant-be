@@ -4,11 +4,9 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from app.common.schemas.base import BaseSchema
 
-
-class DealerAddressDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class DealerAddressDTO(BaseSchema):
 
     id: UUID
     dealer_id: UUID

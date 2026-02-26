@@ -2,11 +2,9 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from app.common.schemas.base import BaseSchema
 
-
-class ProductVariantStandardDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class ProductVariantStandardDTO(BaseSchema):
 
     variant_id: UUID
     standard_id: UUID

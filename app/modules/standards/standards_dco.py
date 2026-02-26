@@ -2,16 +2,14 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
 from app.modules.standards.standards_entity import StandardTypeEnum
 
-
-class StandardDCO(BaseModel):
+class StandardDCO(BaseSchema):
     name: str
     standard_type: StandardTypeEnum
 
-
-class StandardUpdateDCO(BaseModel):
+class StandardUpdateDCO(BaseSchema):
     name: Optional[str] = None
     standard_type: Optional[StandardTypeEnum] = None

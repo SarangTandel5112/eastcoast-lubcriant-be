@@ -1,9 +1,9 @@
+from app.common.schemas.base import BaseSchema
 """Product Domain Class Object — internal typed representation of a product."""
 
 from dataclasses import dataclass, field
 
 from app.common.base_dco import BaseDCO
-
 
 @dataclass
 class ProductDCO(BaseDCO):

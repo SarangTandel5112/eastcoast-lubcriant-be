@@ -4,13 +4,10 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
+from app.common.schemas.base import BaseSchema
 from app.modules.users.users_entity import RoleEnum
 
-
-class UserDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class UserDTO(BaseSchema):
 
     id: UUID
     role: RoleEnum

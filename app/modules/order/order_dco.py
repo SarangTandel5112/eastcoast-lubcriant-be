@@ -1,9 +1,9 @@
+from app.common.schemas.base import BaseSchema
 """Order Domain Class Objects — internal typed representations for orders."""
 
 from dataclasses import dataclass, field
 
 from app.common.base_dco import BaseDCO
-
 
 @dataclass
 class OrderItemDCO:
@@ -26,7 +26,6 @@ class OrderItemDCO:
             quantity=data.get("quantity", 0),
             price=data.get("price", 0.0),
         )
-
 
 @dataclass
 class ShippingAddressDCO:
@@ -61,7 +60,6 @@ class ShippingAddressDCO:
             postal_code=data.get("postal_code", ""),
             country=data.get("country", ""),
         )
-
 
 @dataclass
 class OrderDCO(BaseDCO):
