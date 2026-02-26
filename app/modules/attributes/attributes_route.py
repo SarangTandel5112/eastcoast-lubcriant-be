@@ -8,14 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.response import respond
 from app.core import get_db_session
 from app.modules.attributes import attributes_controller as controller
-from app.modules.attributes.attributes_dco import AttributeDTO, AttributeUpdateDCO
+from app.modules.attributes.attributes_dco import AttributeDCO, AttributeUpdateDCO
+from app.modules.attributes.attributes_dto import AttributeDTO
 
 router = APIRouter()
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_attribute(
-    body: AttributeDTO,
+    body: AttributeDCO,
     db: AsyncSession = Depends(get_db_session),
 ):
     record = await controller.create(db, body)
