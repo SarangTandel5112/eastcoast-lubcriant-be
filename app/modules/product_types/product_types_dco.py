@@ -2,12 +2,10 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class ProductTypeDCO(BaseModel):
+class ProductTypeDCO(BaseSchema):
     name: str
 
-
-class ProductTypeUpdateDCO(BaseModel):
+class ProductTypeUpdateDCO(BaseSchema):
     name: Optional[str] = None

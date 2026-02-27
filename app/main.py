@@ -153,7 +153,7 @@ async def health_check():
     """Health check endpoint with enhanced status information."""
     health_status = {
         "status": "ok",
-        "app": settings.app_name,
+        "appName": settings.app_name,
         "version": "1.0.0",
         "timestamp": time.time(),
         "services": {

@@ -5,11 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from app.common.schemas.base import BaseSchema
 
-
-class ProductVariantDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class ProductVariantDTO(BaseSchema):
 
     id: UUID
     product_id: UUID

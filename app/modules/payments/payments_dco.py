@@ -5,12 +5,11 @@ from decimal import Decimal
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
 from app.modules.payments.payments_entity import PaymentStatusEnum
 
-
-class PaymentDCO(BaseModel):
+class PaymentDCO(BaseSchema):
     order_id: UUID
     stripe_payment_id: str
     payment_method: str
@@ -19,7 +18,6 @@ class PaymentDCO(BaseModel):
     currency: str
     paid_at: Optional[datetime] = None
 
-
-class PaymentUpdateDCO(BaseModel):
+class PaymentUpdateDCO(BaseSchema):
     status: Optional[PaymentStatusEnum] = None
     paid_at: Optional[datetime] = None

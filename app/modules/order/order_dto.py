@@ -1,11 +1,11 @@
 """Order DTOs — request & response Pydantic models for the Order API."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from app.common.schemas.base import BaseSchema
 from typing import List, Optional
 from enum import Enum
 
 from app.modules.order.order_dco import OrderDCO, OrderItemDCO, ShippingAddressDCO
-
 
 class OrderStatusEnum(str, Enum):
     pending = "pending"
@@ -16,17 +16,15 @@ class OrderStatusEnum(str, Enum):
     cancelled = "cancelled"
     refunded = "refunded"
 
-
 # ── Request DTOs ─────────────────────────────────────────────
 
-class OrderItemRequestDTO(BaseModel):
+class OrderItemRequestDTO(BaseSchema):
     """DTO for a single order line-item in a request."""
     product_id: str
     quantity: int = Field(..., gt=0)
     price: float = Field(..., gt=0)  # price at time of order
 
-
-class ShippingAddressRequestDTO(BaseModel):
+class ShippingAddressRequestDTO(BaseSchema):
     """DTO for shipping address in a request."""
     full_name: str
     address_line1: str
@@ -36,25 +34,22 @@ class ShippingAddressRequestDTO(BaseModel):
     postal_code: str
     country: str
 
-
-class CreateOrderRequestDTO(BaseModel):
+class CreateOrderRequestDTO(BaseSchema):
     """DTO for creating a new order."""
     items: List[OrderItemRequestDTO]
     shipping_address: ShippingAddressRequestDTO
     payment_method: str = "stripe"
     coupon_code: Optional[str] = None
 
-
 # ── Response DTOs ────────────────────────────────────────────
 
-class OrderItemResponseDTO(BaseModel):
+class OrderItemResponseDTO(BaseSchema):
     """DTO for a single order line-item in a response."""
     product_id: str
     quantity: int
     price: float
 
-
-class ShippingAddressResponseDTO(BaseModel):
+class ShippingAddressResponseDTO(BaseSchema):
     """DTO for shipping address in a response."""
     full_name: str
     address_line1: str
@@ -64,8 +59,7 @@ class ShippingAddressResponseDTO(BaseModel):
     postal_code: str
     country: str
 
-
-class OrderResponseDTO(BaseModel):
+class OrderResponseDTO(BaseSchema):
     """DTO returned for a single order."""
     id: str
     user_id: str

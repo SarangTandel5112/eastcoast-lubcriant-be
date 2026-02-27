@@ -3,17 +3,15 @@
 from uuid import UUID
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class InventoryDCO(BaseModel):
+class InventoryDCO(BaseSchema):
     variant_id: UUID
     warehouse_id: UUID
     stock_quantity: int
     reserved_quantity: Optional[int] = None
 
-
-class InventoryUpdateDCO(BaseModel):
+class InventoryUpdateDCO(BaseSchema):
     variant_id: Optional[UUID] = None
     warehouse_id: Optional[UUID] = None
     stock_quantity: Optional[int] = None

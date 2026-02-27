@@ -4,11 +4,9 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from app.common.schemas.base import BaseSchema
 
-
-class InventoryDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class InventoryDTO(BaseSchema):
 
     id: UUID
     variant_id: UUID

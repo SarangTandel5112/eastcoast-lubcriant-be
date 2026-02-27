@@ -2,12 +2,11 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
 from app.modules.users.users_entity import RoleEnum
 
-
-class UserDCO(BaseModel):
+class UserDCO(BaseSchema):
     role: RoleEnum
     business_name: str
     email: str
@@ -17,8 +16,7 @@ class UserDCO(BaseModel):
     phone: Optional[str] = None
     is_active: bool = True
 
-
-class UserUpdateDCO(BaseModel):
+class UserUpdateDCO(BaseSchema):
     role: Optional[RoleEnum] = None
     business_name: Optional[str] = None
     email: Optional[str] = None

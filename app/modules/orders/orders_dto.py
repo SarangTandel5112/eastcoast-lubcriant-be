@@ -5,13 +5,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
+from app.common.schemas.base import BaseSchema
 from app.modules.orders.orders_entity import OrderStatusEnum
 
-
-class OrderDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class OrderDTO(BaseSchema):
 
     id: UUID
     dealer_id: UUID

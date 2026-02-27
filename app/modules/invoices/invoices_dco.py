@@ -5,10 +5,9 @@ from decimal import Decimal
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class InvoiceDCO(BaseModel):
+class InvoiceDCO(BaseSchema):
     order_id: UUID
     invoice_number: str
     gst_amount: Optional[Decimal] = None
@@ -17,8 +16,7 @@ class InvoiceDCO(BaseModel):
     pdf_url: Optional[str] = None
     issued_at: Optional[datetime] = None
 
-
-class InvoiceUpdateDCO(BaseModel):
+class InvoiceUpdateDCO(BaseSchema):
     invoice_number: Optional[str] = None
     gst_amount: Optional[Decimal] = None
     pst_amount: Optional[Decimal] = None

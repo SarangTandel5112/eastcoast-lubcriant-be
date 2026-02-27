@@ -1,11 +1,11 @@
 """Product DTOs — request & response Pydantic models for the Product API."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from app.common.schemas.base import BaseSchema
 from typing import Optional, List
 from enum import Enum
 
 from app.modules.product.product_dco import ProductDCO
-
 
 class CategoryEnum(str, Enum):
     electronics = "electronics"
@@ -14,10 +14,9 @@ class CategoryEnum(str, Enum):
     books = "books"
     other = "other"
 
-
 # ── Request DTOs ─────────────────────────────────────────────
 
-class CreateProductRequestDTO(BaseModel):
+class CreateProductRequestDTO(BaseSchema):
     """DTO for creating a new product."""
     name: str = Field(..., min_length=2, max_length=200)
     description: str = Field(..., min_length=10)
@@ -27,8 +26,7 @@ class CreateProductRequestDTO(BaseModel):
     images: List[str] = []
     tags: List[str] = []
 
-
-class UpdateProductRequestDTO(BaseModel):
+class UpdateProductRequestDTO(BaseSchema):
     """DTO for updating an existing product (all fields optional)."""
     name: Optional[str] = Field(None, min_length=2, max_length=200)
     description: Optional[str] = None
@@ -38,10 +36,9 @@ class UpdateProductRequestDTO(BaseModel):
     images: Optional[List[str]] = None
     tags: Optional[List[str]] = None
 
-
 # ── Response DTOs ────────────────────────────────────────────
 
-class ProductResponseDTO(BaseModel):
+class ProductResponseDTO(BaseSchema):
     """DTO returned for a single product."""
     id: str
     name: str
@@ -70,8 +67,7 @@ class ProductResponseDTO(BaseModel):
             created_at=dco.created_at,
         )
 
-
-class ProductListResponseDTO(BaseModel):
+class ProductListResponseDTO(BaseSchema):
     """DTO for paginated product listing."""
     products: List[ProductResponseDTO]
     total: int

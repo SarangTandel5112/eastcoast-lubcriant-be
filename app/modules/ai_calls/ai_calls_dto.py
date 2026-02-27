@@ -4,13 +4,10 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
+from app.common.schemas.base import BaseSchema
 from app.modules.ai_calls.ai_calls_entity import CallStatusEnum
 
-
-class AiCallDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class AiCallDTO(BaseSchema):
 
     id: UUID
     dealer_id: UUID

@@ -5,13 +5,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from app.common.schemas.base import BaseSchema
 
 from app.modules.payments.payments_entity import PaymentStatusEnum
 
-
-class PaymentDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class PaymentDTO(BaseSchema):
 
     id: UUID
     order_id: UUID

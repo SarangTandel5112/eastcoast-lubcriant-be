@@ -1,10 +1,10 @@
+from app.common.schemas.base import BaseSchema
 """Auth Domain Class Object — internal typed representation of a user."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from app.common.base_dco import BaseDCO
-
 
 @dataclass
 class UserDCO(BaseDCO):

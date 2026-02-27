@@ -3,10 +3,9 @@
 from uuid import UUID
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class DealerAddressDCO(BaseModel):
+class DealerAddressDCO(BaseSchema):
     dealer_id: UUID
     address_line1: str
     city: str
@@ -17,8 +16,7 @@ class DealerAddressDCO(BaseModel):
     address_line2: Optional[str] = None
     is_default: Optional[bool] = None
 
-
-class DealerAddressUpdateDCO(BaseModel):
+class DealerAddressUpdateDCO(BaseSchema):
     dealer_id: Optional[UUID] = None
     address_line1: Optional[str] = None
     city: Optional[str] = None

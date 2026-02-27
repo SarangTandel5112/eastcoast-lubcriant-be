@@ -3,17 +3,15 @@
 from uuid import UUID
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class CategoryDCO(BaseModel):
+class CategoryDCO(BaseSchema):
     name: str
     slug: str
     parent_id: Optional[UUID] = None
     sort_order: Optional[int] = None
 
-
-class CategoryUpdateDCO(BaseModel):
+class CategoryUpdateDCO(BaseSchema):
     name: Optional[str] = None
     slug: Optional[str] = None
     parent_id: Optional[UUID] = None

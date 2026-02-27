@@ -4,12 +4,11 @@ from uuid import UUID
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
 from app.modules.orders.orders_entity import OrderStatusEnum
 
-
-class OrderDCO(BaseModel):
+class OrderDCO(BaseSchema):
     dealer_id: UUID
     status: OrderStatusEnum
     currency: str = "CAD"
@@ -19,8 +18,7 @@ class OrderDCO(BaseModel):
     discount_amount: Decimal = Decimal("0")
     placed_at: Optional[str] = None
 
-
-class OrderUpdateDCO(BaseModel):
+class OrderUpdateDCO(BaseSchema):
     status: Optional[OrderStatusEnum] = None
     currency: Optional[str] = None
     shipping_address_snapshot: Optional[dict] = None

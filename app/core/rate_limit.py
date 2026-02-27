@@ -51,7 +51,7 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
     Custom handler for rate limit exceeded errors.
     Returns consistent error format matching the application's error response structure.
     """
-    from datetime import datetime, timezone
+    from app.common.response import error_respond
 
     logger.warning(
         "Rate limit exceeded | path={} ip={} limit={}",
@@ -60,22 +60,13 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
         exc.detail
     )
 
-    return JSONResponse(
+    return error_respond(
+        message="Too many requests. Please try again later.",
         status_code=429,
-        content={
-            "success": False,
-            "status_code": 429,
-            "message": "Too many requests. Please try again later.",
-            "error_code": "RATE_LIMIT_EXCEEDED",
-            "errors": None,
-            "details": {
-                "limit": exc.detail,
-                "retry_after": "60 seconds"
-            },
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },
-        headers={
-            "Retry-After": "60",  # Suggest retry after 60 seconds
+        error_code="RATE_LIMIT_EXCEEDED",
+        details={
+            "limit": exc.detail,
+            "retryAfter": "60 seconds"
         }
     )
 

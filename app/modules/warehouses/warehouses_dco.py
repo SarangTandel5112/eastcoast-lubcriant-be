@@ -2,14 +2,12 @@
 
 from typing import Optional
 
-from pydantic import BaseModel
+from app.common.schemas.base import BaseSchema
 
-
-class WarehouseDCO(BaseModel):
+class WarehouseDCO(BaseSchema):
     name: str
     code: str
 
-
-class WarehouseUpdateDCO(BaseModel):
+class WarehouseUpdateDCO(BaseSchema):
     name: Optional[str] = None
     code: Optional[str] = None

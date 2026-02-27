@@ -3,12 +3,10 @@
 from uuid import UUID
 from typing import Optional
 
-from pydantic import BaseModel
-
+from app.common.schemas.base import BaseSchema
 from app.modules.inventory_movements.inventory_movements_entity import MovementTypeEnum
 
-
-class InventoryMovementDCO(BaseModel):
+class InventoryMovementDCO(BaseSchema):
     variant_id: UUID
     warehouse_id: UUID
     movement_type: MovementTypeEnum
@@ -16,8 +14,7 @@ class InventoryMovementDCO(BaseModel):
     reference_type: Optional[str] = None
     reference_id: Optional[UUID] = None
 
-
-class InventoryMovementUpdateDCO(BaseModel):
+class InventoryMovementUpdateDCO(BaseSchema):
     variant_id: Optional[UUID] = None
     warehouse_id: Optional[UUID] = None
     movement_type: Optional[MovementTypeEnum] = None
