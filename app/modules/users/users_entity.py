@@ -1,43 +1,89 @@
-"""SQLAlchemy entity for the `users` table."""
+from __future__ import annotations
+"""ORM Entity for the `users` table."""
 
-import uuid
-from uuid import uuid4
-from enum import Enum as PyEnum
+import enum
+from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import Column, Text, String, Boolean, Integer, DateTime, Enum
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base
+from app.common.base_entity import Base, TimestampMixin
 
 
-class RoleEnum(str, PyEnum):
+class RoleEnum(str, enum.Enum):
+    """Available user roles."""
     ADMIN = "ADMIN"
     DEALER = "DEALER"
 
 
-class User(Base):
+class User(Base, TimestampMixin):
+    """User entity for authentication and profile management."""
+    
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    role = Column(Enum(RoleEnum), nullable=False)
-    business_name = Column(Text, nullable=False)
-    email = Column(Text, nullable=False, unique=True)
-    password_hash = Column(Text, nullable=False)
-    province = Column(Text, nullable=False)
-    contact_name = Column(Text, nullable=True)
-    phone = Column(Text, nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
-    last_login_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    role: Mapped[str] = mapped_column(
+        String(20), 
+        nullable=False, 
+        default=RoleEnum.DEALER,
+        comment="ADMIN, DEALER"
+    )
+    business_name: Mapped[str] = mapped_column(
+        Text, 
+        nullable=False
+    )
+    email: Mapped[str] = mapped_column(
+        Text, 
+        nullable=False, 
+        unique=True, 
+        index=True
+    )
+    password_hash: Mapped[str] = mapped_column(
+        Text, 
+        nullable=False
+    )
+    province: Mapped[str] = mapped_column(
+        Text, 
+        nullable=False
+    )
+    contact_name: Mapped[Optional[str]] = mapped_column(
+        Text, 
+        nullable=True
+    )
+    phone: Mapped[Optional[str]] = mapped_column(
+        Text, 
+        nullable=True, 
+        index=True
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, 
+        default=True, 
+        server_default="true"
+    )
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=True
+    )
+    current_refresh_jti: Mapped[Optional[str]] = mapped_column(
+        String(255), 
+        nullable=True, 
+        comment="Stores JWT refresh token ID to support revoking sessions"
+    )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=True
+    )
 
-    # Internal auth field (not in DBML, required by auth module for JWT rotation)
-    current_refresh_jti = Column(Text, nullable=True)
+    # ── Relationships ──────────────────────────────────────────
+    orders: Mapped[list["Order"]] = relationship(
+        "Order", back_populates="dealer", cascade="all, delete-orphan"
+    )
+    dealer_addresses: Mapped[list["DealerAddress"]] = relationship(
+        "DealerAddress", back_populates="dealer", cascade="all, delete-orphan"
+    )
+    ai_calls: Mapped[list["AiCall"]] = relationship(
+        "AiCall", back_populates="dealer", cascade="all, delete-orphan"
+    )
 
-    # Relationships
-    dealer_addresses = relationship("DealerAddress", back_populates="dealer")
-    orders = relationship("Order", back_populates="dealer")
-    ai_calls = relationship("AiCall", back_populates="dealer")
+    def __repr__(self) -> str:
+        return f"<User(email='{self.email}', role='{self.role}')>"

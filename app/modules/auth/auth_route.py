@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -232,3 +232,4 @@ async def delete_user_by_admin(
 ):
     """Soft-delete user as admin."""
     await auth_service.delete_user_by_admin(db, user_id, admin)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -16,6 +16,7 @@ from app.modules.auth.auth_dto import (
     UpdateMyProfileRequestDTO,
     UserResponseDTO,
 )
+from app.modules.auth.auth_entity import RoleEnum
 from app.modules.auth.auth_model import (
     create_user,
     find_user_by_email,
@@ -53,38 +54,42 @@ async def _assert_phone_available(session: AsyncSession, phone: str | None, excl
 
 
 async def register_user(session: AsyncSession, body: RegisterRequestDTO) -> UserResponseDTO:
+    """Public registration with validation and robust error handling."""
     if await find_user_by_email(session, body.email, include_deleted=True):
         raise ConflictError(message="Email already registered", resource="user", field="email")
+    
     await _assert_phone_available(session, body.phone)
 
-    hashed = hash_password(body.password)
-
+    # Building DCO with full schema fields
     dco = UserDCO(
-        role="DEALER",
+        role=RoleEnum.DEALER, # Constant for public registration
         business_name=body.business_name,
         email=body.email,
-        password_hash=hashed,
+        password_hash=hash_password(body.password),
         province=body.province,
         contact_name=body.contact_name,
         phone=body.phone,
         is_active=True,
     )
+    
     created = await create_user(session, dco)
-
-    logger.info("User registered | user_id={} email={}", created.id, created.email)
+    await session.commit()
+    logger.info("New Dealer registration successful | user_id={} business={}", created.id, created.business_name)
     return UserResponseDTO.from_dco(created)
 
 
 async def create_user_by_admin(session: AsyncSession, body: AdminCreateUserRequestDTO, admin_user: dict) -> UserResponseDTO:
-    if admin_user.get("role") != "ADMIN":
-        raise AuthorizationError("Only admins can create users", required_role="ADMIN")
+    """Privileged user creation with role support and full schema."""
+    if admin_user.get("role") != RoleEnum.ADMIN:
+        raise AuthorizationError("Only administrators can perform this action", required_role="ADMIN")
 
     if await find_user_by_email(session, body.email, include_deleted=True):
-        raise ConflictError(message="Email already registered", resource="user", field="email")
+        raise ConflictError(message="Account already exists for this email", resource="user", field="email")
+    
     await _assert_phone_available(session, body.phone)
 
     dco = UserDCO(
-        role=body.role.value,
+        role=body.role.value if hasattr(body.role, "value") else body.role,
         business_name=body.business_name,
         email=body.email,
         password_hash=hash_password(body.password),
@@ -93,10 +98,11 @@ async def create_user_by_admin(session: AsyncSession, body: AdminCreateUserReque
         phone=body.phone,
         is_active=body.is_active,
     )
+    
     created = await create_user(session, dco)
-
+    await session.commit()
     logger.info(
-        "User created by admin | admin_id={} user_id={} role={}",
+        "Admin user creation | admin_id={} new_user_id={} role={}",
         admin_user["user_id"],
         created.id,
         created.role,
@@ -131,12 +137,11 @@ async def login_user(session: AsyncSession, body: LoginRequestDTO) -> TokenRespo
         raise AuthenticationError("Account is inactive. Contact administrator")
 
     await set_last_login(session, user.id)
-    user = await find_user_by_id(session, user.id)
-    if not user:
-        raise AuthenticationError("Unable to load user session")
-
+    # Token pair will call set_current_refresh_jti which also needs commit
+    tokens = await _issue_token_pair(session, user)
+    await session.commit()
     logger.info("User logged in | user_id={} role={}", user.id, user.role)
-    return await _issue_token_pair(session, user)
+    return tokens
 
 
 async def refresh_user_token(session: AsyncSession, body: RefreshTokenRequestDTO) -> TokenResponseDTO:
@@ -164,11 +169,14 @@ async def refresh_user_token(session: AsyncSession, body: RefreshTokenRequestDTO
         raise AuthenticationError("Refresh token already rotated or revoked")
 
     logger.info("Token refreshed | user_id={}", user.id)
-    return await _issue_token_pair(session, user)
+    tokens = await _issue_token_pair(session, user)
+    await session.commit()
+    return tokens
 
 
 async def logout_user(session: AsyncSession, user_id: str) -> None:
     await set_current_refresh_jti(session, user_id, None)
+    await session.commit()
     logger.info("User logged out | user_id={}", user_id)
 
 
@@ -250,6 +258,7 @@ async def update_user_by_admin(
         updates["current_refresh_jti"] = None
 
     updated_user = await update_user(session, target_user_id, updates)
+    await session.commit()
     if not updated_user:
         raise NotFoundError("user", target_user_id)
 
@@ -268,6 +277,7 @@ async def delete_user_by_admin(session: AsyncSession, target_user_id: str, admin
     if not await soft_delete_user(session, target_user_id):
         raise NotFoundError("user", target_user_id)
 
+    await session.commit()
     logger.info(
         "User soft-deleted by admin | admin_id={} user_id={}",
         admin_user["user_id"],

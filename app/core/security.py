@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.token_blacklist import is_token_blacklisted, are_user_tokens_revoked
 from app.core.exceptions import AuthenticationError, AuthorizationError
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 

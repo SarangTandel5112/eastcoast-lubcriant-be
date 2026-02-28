@@ -2,7 +2,7 @@
 
 from .config import settings
 from .logging import setup_logging
-from .database import get_db_session, verify_db_connection, close_db_connection
+from .database import get_db_session, verify_db_connection, close_db_connection, init_db_schema
 from .supabase_client import get_supabase_client
 from .security import (
     hash_password, verify_password,
@@ -55,4 +55,5 @@ __all__ = [
     "ProductValidationError",
     "OrderValidationError",
     "UserValidationError",
+    "init_db_schema",
 ]
