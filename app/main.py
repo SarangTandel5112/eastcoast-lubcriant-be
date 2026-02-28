@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 import time
 from secrets import compare_digest
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
@@ -149,8 +149,10 @@ if not settings.debug and settings.docs_password:
 
 
 @app.get("/health", tags=["Health"])
-async def health_check():
+async def health_check(request: Request):
     """Health check endpoint with enhanced status information."""
+    from app.common.response import respond
+
     health_status = {
         "status": "ok",
         "appName": settings.app_name,
@@ -163,4 +165,8 @@ async def health_check():
         }
     }
 
-    return health_status
+    return respond(
+        data=health_status,
+        message="System health information",
+        request_id=getattr(request.state, "request_id", None)
+    )

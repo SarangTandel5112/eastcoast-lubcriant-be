@@ -9,12 +9,14 @@ class EcommerceException(Exception):
         message: str, 
         error_code: str = None, 
         details: Optional[Dict[str, Any]] = None,
-        status_code: int = 400
+        status_code: int = 400,
+        headers: Optional[Dict[str, str]] = None
     ):
         self.message = message
         self.error_code = error_code or "GENERIC_ERROR"
         self.details = details or {}
         self.status_code = status_code
+        self.headers = headers
         super().__init__(message)
 
 
@@ -33,11 +35,17 @@ class NotFoundError(EcommerceException):
 class ValidationError(EcommerceException):
     """Raised when input validation fails."""
     
-    def __init__(self, message: str, field: str = None, value: str = None):
+    def __init__(self, message: str, field: str = None, value: Any = None, details: Dict[str, Any] = None):
+        error_details = details or {}
+        if field:
+            error_details["field"] = field
+        if value is not None:
+            error_details["value"] = value
+            
         super().__init__(
             message=message,
             error_code="VALIDATION_ERROR",
-            details={"field": field, "value": value} if field or value else {},
+            details=error_details,
             status_code=422
         )
 
@@ -112,7 +120,46 @@ class PaymentError(EcommerceException):
             message=message,
             error_code="PAYMENT_ERROR",
             details={"payment_intent_id": payment_intent_id} if payment_intent_id else {},
-            status_code=400
+            status_code=402  # Payment Required
+        )
+
+
+class BusinessRuleError(EcommerceException):
+    """
+    Raised when a request is syntactically correct but violates a business rule.
+    Example: 'Cannot cancel an order that has already been shipped.'
+    """
+    
+    def __init__(self, message: str, rule_name: str = None):
+        super().__init__(
+            message=message,
+            error_code="BUSINESS_RULE_VIOLATION",
+            details={"rule_name": rule_name} if rule_name else {},
+            status_code=422
+        )
+
+
+class RateLimitError(EcommerceException):
+    """Raised when the user has sent too many requests in a given amount of time."""
+    
+    def __init__(self, message: str = "Too many requests", retry_after: str = "60 seconds"):
+        super().__init__(
+            message=message,
+            error_code="RATE_LIMIT_EXCEEDED",
+            details={"retry_after": retry_after},
+            status_code=429
+        )
+
+
+class ServiceUnavailableError(EcommerceException):
+    """Raised when the server is temporarily unable to handle the request (e.g. maintenance)."""
+    
+    def __init__(self, message: str = "Service temporarily unavailable", service_name: str = None):
+        super().__init__(
+            message=message,
+            error_code="SERVICE_UNAVAILABLE",
+            details={"service_name": service_name} if service_name else {},
+            status_code=503
         )
 
 
@@ -144,9 +191,9 @@ class ConfigurationError(EcommerceException):
 class ProductValidationError(ValidationError):
     """Product-specific validation errors."""
     
-    def __init__(self, field: str, value: str, constraint: str):
+    def __init__(self, field: str, value: Any, constraint: str):
         message = f"Invalid {field}: '{value}'. {constraint}"
-        super().__init__(message, field, value)
+        super().__init__(message=message, field=field, value=value)
 
 
 class OrderValidationError(ValidationError):
@@ -159,12 +206,12 @@ class OrderValidationError(ValidationError):
         if item_index is not None:
             details["item_index"] = item_index
         
-        super().__init__(message, details=details)
+        super().__init__(message=message, details=details)
 
 
 class UserValidationError(ValidationError):
     """User-specific validation errors."""
     
-    def __init__(self, field: str, value: str, constraint: str):
+    def __init__(self, field: str, value: Any, constraint: str):
         message = f"Invalid {field}: '{value}'. {constraint}"
-        super().__init__(message, field, value)
+        super().__init__(message=message, field=field, value=value)
