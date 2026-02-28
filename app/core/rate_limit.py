@@ -94,8 +94,8 @@ class RateLimits:
     """Predefined rate limits for different endpoint types."""
 
     # Authentication endpoints - stricter limits to prevent brute force
-    AUTH_LOGIN = "5/minute"  # Only 5 login attempts per minute
-    AUTH_REGISTER = "3/minute"  # 3 registrations per minute per IP
+    AUTH_LOGIN = "5/minute"  # Restored
+    AUTH_REGISTER = "3/minute"  # Restored
     AUTH_REFRESH = "10/minute"  # 10 token refreshes per minute
     AUTH_PASSWORD_RESET = "3/hour"  # 3 password reset requests per hour
 

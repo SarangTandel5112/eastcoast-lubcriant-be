@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # Supabase client (for auth/storage SDK features)
     supabase_url: str = ""       # https://xxxxx.supabase.co
     supabase_key: str = ""       # anon or service_role key
+    supabase_service_role_key: str = ""
 
 
     # Documentation access (for protecting Swagger/ReDoc)

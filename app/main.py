@@ -8,7 +8,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from loguru import logger
 
-from app.core import settings, setup_logging, verify_db_connection, close_db_connection
+from app.core import settings, setup_logging, verify_db_connection, close_db_connection, init_db_schema
 from app.core.rate_limit import setup_rate_limiting
 from app.api.v1.router import router as v1_router
 from app.middleware import (
@@ -49,8 +49,10 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Starting {} ...", settings.app_name)
 
-    # ── Database (Supabase Postgres) ──────────────────────
+    # ── Database (Auto-Sync Schema) ──────────────────────
     db_connected = await verify_db_connection()
+    if db_connected:
+        await init_db_schema()
 
     # ── Redis cache (optional) ───────────────────────────
     if settings.redis_url:
